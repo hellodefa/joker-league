@@ -6,23 +6,8 @@ export interface PlayerStanding {
 
 export interface RoundData {
   roundNumber: number;
-
-  /**
-   * Pemenang ronde yang dipilih manual.
-   * Ini berbeda dengan pemenang permainan akhir.
-   */
-  roundWinner?: string;
-
-  /**
-   * Selisih nilai ronde ini dibanding ronde sebelumnya.
-   * Contoh: sebelumnya 100, sekarang 230, maka scores = +130.
-   */
+  roundWinner: string; // Ubah dari optional (?) menjadi wajib string (default "")
   scores: Record<string, number>;
-
-  /**
-   * Total akumulasi pemain setelah ronde ini.
-   * Contoh: 230.
-   */
   accumulated: Record<string, number>;
 }
 

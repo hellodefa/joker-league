@@ -22,20 +22,14 @@ export default function PlayerInputModal({ onClose, onStart }: Props) {
     try {
       const groupsRef = ref(db, 'playerGroups');
       const snapshot = await get(groupsRef);
-
       if (snapshot.exists()) {
         const data = snapshot.val();
         const groups = Object.values(data) as any[];
-        
-        // Cari angka tertinggi dari nama group yang berupa angka
         let maxNum = 0;
         groups.forEach((g) => {
           const num = parseInt(g.name);
-          if (!isNaN(num) && num > maxNum) {
-            maxNum = num;
-          }
+          if (!isNaN(num) && num > maxNum) maxNum = num;
         });
-
         setNextGroupNumber(maxNum + 1);
       }
     } catch (err) {
@@ -46,9 +40,8 @@ export default function PlayerInputModal({ onClose, onStart }: Props) {
   const handleCountChange = (count: number) => {
     setPlayerCount(count);
     setNames((prev) => {
-      const newArr = [...prev];
-      newArr.length = count;
-      return newArr.map((n) => n || '');
+      // Buat array baru dengan ukuran 'count', isi dengan nilai lama jika ada, atau string kosong
+      return Array.from({ length: count }, (_, i) => prev[i] || '');
     });
   };
 
@@ -66,17 +59,9 @@ export default function PlayerInputModal({ onClose, onStart }: Props) {
     }
 
     try {
-      /**
-       * Auto-create group dengan nama angka ascending.
-       */
       const groupName = String(nextGroupNumber);
       const groupsRef = ref(db, 'playerGroups');
-      
-      await push(groupsRef, {
-        name: groupName,
-        players: validNames,
-      });
-
+      await push(groupsRef, { name: groupName, players: validNames });
       onStart(validNames);
       onClose();
     } catch (err) {
@@ -89,24 +74,18 @@ export default function PlayerInputModal({ onClose, onStart }: Props) {
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
       <div className="bg-gradient-to-br from-indigo-900 to-purple-900 rounded-2xl p-6 max-w-md w-full border border-white/20">
         <h2 className="text-2xl font-bold mb-4">👥 Input Pemain</h2>
-
         <label className="block mb-2">Jumlah Pemain (4-6):</label>
         <div className="flex gap-2 mb-4">
           {[4, 5, 6].map((n) => (
             <button
               key={n}
               onClick={() => handleCountChange(n)}
-              className={`flex-1 py-2 rounded-lg font-bold ${
-                playerCount === n
-                  ? 'bg-yellow-500 text-black'
-                  : 'bg-white/10 hover:bg-white/20'
-              }`}
+              className={`flex-1 py-2 rounded-lg font-bold ${playerCount === n ? 'bg-yellow-500 text-black' : 'bg-white/10 hover:bg-white/20'}`}
             >
               {n}
             </button>
           ))}
         </div>
-
         <div className="space-y-2 mb-4">
           {names.map((name, i) => (
             <input
@@ -119,26 +98,12 @@ export default function PlayerInputModal({ onClose, onStart }: Props) {
             />
           ))}
         </div>
-
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4 text-sm">
-          <p className="text-blue-300">
-            💡 Group baru akan otomatis dibuat dengan nama: <b>{nextGroupNumber}</b>
-          </p>
+          <p className="text-blue-300">💡 Group baru akan otomatis dibuat dengan nama: <b>{nextGroupNumber}</b></p>
         </div>
-
         <div className="flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg"
-          >
-            Batal
-          </button>
-          <button
-            onClick={handleStart}
-            className="flex-1 py-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 rounded-lg font-bold"
-          >
-            Mulai
-          </button>
+          <button onClick={onClose} className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg">Batal</button>
+          <button onClick={handleStart} className="flex-1 py-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 rounded-lg font-bold">Mulai</button>
         </div>
       </div>
     </div>

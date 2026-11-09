@@ -183,7 +183,11 @@ export default function GamePage() {
 
     const roundsObj: Record<string, any> = {};
     session.rounds.forEach((r, idx) => {
-      roundsObj[idx] = r;
+      roundsObj[idx] = {
+        ...r,
+        // PAKSA menjadi string kosong jika undefined/null agar Firebase tidak error
+        roundWinner: r.roundWinner || "", 
+      };
     });
 
     await set(sessionRef, {
@@ -191,6 +195,7 @@ export default function GamePage() {
       rounds: roundsObj,
     });
   };
+
 
   const updateStandings = async (winner: string, losers: string[]) => {
     const winnerRef = ref(db, `standings/${winner}`);
@@ -231,12 +236,18 @@ export default function GamePage() {
   };
 
   const handleViewHistory = (session: GameSession) => {
+    const normalizedRounds = Array.isArray(session.rounds)
+      ? session.rounds
+      : (Object.values(session.rounds) as RoundData[]);
+
     const normalizedSession: GameSession = {
       ...session,
-      rounds: Array.isArray(session.rounds)
-        ? session.rounds
-        : (Object.values(session.rounds) as RoundData[]),
+      rounds: normalizedRounds.map(r => ({
+        ...r,
+        roundWinner: r.roundWinner || "" // Pastikan aman
+      }))
     };
+    
     setSelectedSessionHistory(normalizedSession);
     setShowRoundHistory(true);
   };

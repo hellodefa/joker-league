@@ -122,7 +122,10 @@ export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
                         👁 Lihat
                       </button>
                       <button
-                        onClick={() => onSelect(g.players)}
+                        onClick={() => {
+                          onSelect(g.players);
+                          onClose(); // <-- TAMBAHKAN INI
+                        }}
                         className="px-3 py-1 bg-green-500/30 hover:bg-green-500/50 rounded text-sm"
                       >
                         Pilih
@@ -186,6 +189,7 @@ export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
               <button
                 onClick={() => {
                   onSelect(previewGroup.players);
+                  onClose(); 
                 }}
                 className="flex-1 py-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 rounded-lg font-bold"
               >
