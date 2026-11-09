@@ -6,6 +6,7 @@ import {
   ref,
   get,
   set,
+  push,
   update,
 } from 'firebase/database';
 import { db } from '@/lib/firebase';
@@ -44,8 +45,35 @@ export default function GamePage() {
 
       if (snapshot.exists()) {
         const data = snapshot.val();
-        const sessions: GameSession[] = Object.values(data);
+
+        const sessions: GameSession[] = Object.values(data)
+          .map((raw: any) => {
+            const rounds: RoundData[] = Array.isArray(raw.rounds)
+              ? raw.rounds
+              : Object.values(raw.rounds ?? {}).map((r: any) => ({
+                  roundNumber: r.roundNumber,
+                  roundWinner: r.roundWinner,
+                  scores: r.scores ?? {},
+                  accumulated: r.accumulated ?? {},
+                }));
+
+            return {
+              id: raw.id,
+              date: raw.date,
+              players: raw.players ?? [],
+              rounds: rounds.sort((a: RoundData, b: RoundData) => {
+                return a.roundNumber - b.roundNumber;
+              }),
+              winner: raw.winner,
+              losers: raw.losers ?? [],
+              timestamp: raw.timestamp ?? 0,
+            } as GameSession;
+          })
+          .sort((a, b) => a.timestamp - b.timestamp);
+
         setGameSessions(sessions);
+      } else {
+        setGameSessions([]);
       }
     } catch (err) {
       console.error('Error load today sessions:', err);
@@ -66,71 +94,62 @@ export default function GamePage() {
       roundNumber: 1,
       scores: Object.fromEntries(playerList.map((p) => [p, 0])),
       accumulated: initialAccumulated,
-      winner: '', // ⭐ Tambahkan field winner
     });
   };
 
+  const handleRoundInput = (
+    deltaScores: Record<string, number>,
+    roundWinner?: string
+  ) => {
+    if (!currentRound) return;
 
-  // ⭐ Update signature untuk menerima winner
- const handleRoundInput = (
-  deltaScores: Record<string, number>,
-  roundWinner?: string
-) => {
-  if (!currentRound) return;
+    const newAccumulated: Record<string, number> = {};
 
-  /**
-   * Sekarang input dari GameTable adalah DELTA (nilai ronde ini).
-   * Sistem menghitung total akumulasi baru.
-   */
-  const newAccumulated: Record<string, number> = {};
+    players.forEach((player) => {
+      const previous = currentRound.accumulated[player] ?? 0;
+      const delta = deltaScores[player] ?? 0;
 
-  players.forEach((player) => {
-    const previous = currentRound.accumulated[player] ?? 0;
-    const delta = deltaScores[player] ?? 0;
+      newAccumulated[player] = previous + delta;
+    });
 
-    newAccumulated[player] = previous + delta;
-  });
-
-  const completedRound: RoundData = {
-    roundNumber: currentRound.roundNumber,
-    roundWinner,
-    scores: deltaScores, // Simpan delta scores
-    accumulated: newAccumulated,
-  };
-
-  const newHistory = [...roundHistory, completedRound];
-  setRoundHistory(newHistory);
-
-  const playersAbove500 = Object.entries(newAccumulated).filter(
-    ([, value]) => value >= 500
-  );
-
-  if (playersAbove500.length > 0) {
-    setCurrentRound({
+    const completedRound: RoundData = {
       roundNumber: currentRound.roundNumber,
-      scores: Object.fromEntries(players.map((player) => [player, 0])),
+      roundWinner,
+      scores: deltaScores,
       accumulated: newAccumulated,
-    });
+    };
 
-    finishGame(newHistory, newAccumulated);
-  } else {
-    setCurrentRound({
-      roundNumber: currentRound.roundNumber + 1,
-      scores: Object.fromEntries(players.map((player) => [player, 0])),
-      accumulated: newAccumulated,
-    });
-  }
-};
+    const newHistory = [...roundHistory, completedRound];
+    setRoundHistory(newHistory);
+
+    const playersAbove500 = Object.entries(newAccumulated).filter(
+      ([, value]) => value >= 500
+    );
+
+    if (playersAbove500.length > 0) {
+      setCurrentRound({
+        roundNumber: currentRound.roundNumber,
+        scores: Object.fromEntries(players.map((player) => [player, 0])),
+        accumulated: newAccumulated,
+      });
+
+      finishGame(newHistory, newAccumulated);
+    } else {
+      setCurrentRound({
+        roundNumber: currentRound.roundNumber + 1,
+        scores: Object.fromEntries(players.map((player) => [player, 0])),
+        accumulated: newAccumulated,
+      });
+    }
+  };
 
   const finishGame = async (
     history: RoundData[],
     accumulated: Record<string, number>
   ) => {
-    // Tentukan pemenang (nilai tertinggi)
     const sorted = Object.entries(accumulated).sort((a, b) => b[1] - a[1]);
     const winner = sorted[0][0];
 
-    // Tentukan pecundang (nilai terendah, bisa lebih dari satu)
     const minValue = Math.min(...Object.values(accumulated));
     const losers = Object.entries(accumulated)
       .filter(([, v]) => v === minValue)
@@ -207,9 +226,19 @@ export default function GamePage() {
       roundNumber: 1,
       scores: Object.fromEntries(players.map((p) => [p, 0])),
       accumulated: Object.fromEntries(players.map((p) => [p, 0])),
-      winner: '',
     });
     setRoundHistory([]);
+  };
+
+  const handleViewHistory = (session: GameSession) => {
+    const normalizedSession: GameSession = {
+      ...session,
+      rounds: Array.isArray(session.rounds)
+        ? session.rounds
+        : (Object.values(session.rounds) as RoundData[]),
+    };
+    setSelectedSessionHistory(normalizedSession);
+    setShowRoundHistory(true);
   };
 
   return (
@@ -338,16 +367,7 @@ export default function GamePage() {
                     </td>
                     <td className="py-2 text-center">
                       <button
-                        onClick={() => {
-                          const normalizedSession = {
-                            ...s,
-                            rounds: Array.isArray(s.rounds)
-                              ? s.rounds
-                              : Object.values(s.rounds),
-                          };
-                          setSelectedSessionHistory(normalizedSession);
-                          setShowRoundHistory(true);
-                        }}
+                        onClick={() => handleViewHistory(s)}
                         className="px-3 py-1 bg-blue-500/30 hover:bg-blue-500/50 rounded text-sm"
                       >
                         📜 Lihat Riwayat
