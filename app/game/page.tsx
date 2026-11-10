@@ -26,8 +26,7 @@ export default function GamePage() {
   const [showPlayerInput, setShowPlayerInput] = useState(false);
   const [showGroupSelector, setShowGroupSelector] = useState(false);
   const [showRoundHistory, setShowRoundHistory] = useState(false);
-  const [selectedSessionHistory, setSelectedSessionHistory] =
-    useState<GameSession | null>(null);
+  const [selectedSessionHistory, setSelectedSessionHistory] = useState<GameSession | null>(null);
   const [gameEnded, setGameEnded] = useState(false);
   const [lastWinner, setLastWinner] = useState<string>('');
   const [lastLosers, setLastLosers] = useState<string[]>([]);
@@ -52,7 +51,7 @@ export default function GamePage() {
               ? raw.rounds
               : Object.values(raw.rounds ?? {}).map((r: any) => ({
                   roundNumber: r.roundNumber,
-                  roundWinner: r.roundWinner,
+                  roundWinner: r.roundWinner || "",
                   scores: r.scores ?? {},
                   accumulated: r.accumulated ?? {},
                 }));
@@ -61,9 +60,7 @@ export default function GamePage() {
               id: raw.id,
               date: raw.date,
               players: raw.players ?? [],
-              rounds: rounds.sort((a: RoundData, b: RoundData) => {
-                return a.roundNumber - b.roundNumber;
-              }),
+              rounds: rounds.sort((a: RoundData, b: RoundData) => a.roundNumber - b.roundNumber),
               winner: raw.winner,
               losers: raw.losers ?? [],
               timestamp: raw.timestamp ?? 0,
@@ -92,6 +89,7 @@ export default function GamePage() {
 
     setCurrentRound({
       roundNumber: 1,
+      roundWinner: "", // WAJIB ADA
       scores: Object.fromEntries(playerList.map((p) => [p, 0])),
       accumulated: initialAccumulated,
     });
@@ -99,7 +97,7 @@ export default function GamePage() {
 
   const handleRoundInput = (
     deltaScores: Record<string, number>,
-    roundWinner?: string
+    roundWinner: string // Dihapus tanda '?' agar strictly string
   ) => {
     if (!currentRound) return;
 
@@ -108,13 +106,12 @@ export default function GamePage() {
     players.forEach((player) => {
       const previous = currentRound.accumulated[player] ?? 0;
       const delta = deltaScores[player] ?? 0;
-
       newAccumulated[player] = previous + delta;
     });
 
     const completedRound: RoundData = {
       roundNumber: currentRound.roundNumber,
-      roundWinner,
+      roundWinner, // Strictly string
       scores: deltaScores,
       accumulated: newAccumulated,
     };
@@ -129,6 +126,7 @@ export default function GamePage() {
     if (playersAbove500.length > 0) {
       setCurrentRound({
         roundNumber: currentRound.roundNumber,
+        roundWinner: "", // WAJIB ADA
         scores: Object.fromEntries(players.map((player) => [player, 0])),
         accumulated: newAccumulated,
       });
@@ -137,6 +135,7 @@ export default function GamePage() {
     } else {
       setCurrentRound({
         roundNumber: currentRound.roundNumber + 1,
+        roundWinner: "", // WAJIB ADA
         scores: Object.fromEntries(players.map((player) => [player, 0])),
         accumulated: newAccumulated,
       });
@@ -185,8 +184,7 @@ export default function GamePage() {
     session.rounds.forEach((r, idx) => {
       roundsObj[idx] = {
         ...r,
-        // PAKSA menjadi string kosong jika undefined/null agar Firebase tidak error
-        roundWinner: r.roundWinner || "", 
+        roundWinner: r.roundWinner || "", // PAKSA string kosong jika undefined
       };
     });
 
@@ -195,7 +193,6 @@ export default function GamePage() {
       rounds: roundsObj,
     });
   };
-
 
   const updateStandings = async (winner: string, losers: string[]) => {
     const winnerRef = ref(db, `standings/${winner}`);
@@ -229,6 +226,7 @@ export default function GamePage() {
     setGameEnded(false);
     setCurrentRound({
       roundNumber: 1,
+      roundWinner: "", // WAJIB ADA
       scores: Object.fromEntries(players.map((p) => [p, 0])),
       accumulated: Object.fromEntries(players.map((p) => [p, 0])),
     });
@@ -244,7 +242,7 @@ export default function GamePage() {
       ...session,
       rounds: normalizedRounds.map(r => ({
         ...r,
-        roundWinner: r.roundWinner || "" // Pastikan aman
+        roundWinner: r.roundWinner || ""
       }))
     };
     
