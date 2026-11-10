@@ -17,8 +17,6 @@ function GamePlayContent() {
   const [dailySessions, setDailySessions] = useState<GameSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [showGameEndedModal, setShowGameEndedModal] = useState(false);
-  
-  // State untuk modal riwayat dari klasemen harian
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedHistorySession, setSelectedHistorySession] = useState<GameSession | null>(null);
 
@@ -59,7 +57,6 @@ function GamePlayContent() {
           ...s,
           rounds: Array.isArray(s.rounds) ? s.rounds : Object.values(s.rounds || {})
         }));
-        // Urutkan dari yang terbaru
         sessions.sort((a: GameSession, b: GameSession) => b.timestamp - a.timestamp);
         setDailySessions(sessions);
       }
@@ -104,7 +101,7 @@ function GamePlayContent() {
       setSession(updatedSession);
       setShowGameEndedModal(true);
       
-      // Simpan state akhir ke DB agar konsisten
+      // FIX: Simpan ke activeSessions agar tidak hilang jika refresh
       await set(ref(db, `activeSessions/${session.id}`), updatedSession);
     } else {
       const nextRound: RoundData = {
@@ -124,7 +121,25 @@ function GamePlayContent() {
     }
   };
 
-  // Fungsi untuk mengakhiri permainan paksa (dipanggil saat tombol Kembali ditekan)
+  // FIX: Fungsi untuk menyimpan sesi yang sudah selesai ke riwayat dan update standings
+  const saveFinishedSession = async (sessionToSave: GameSession) => {
+    if (!sessionToSave.winner || !sessionToSave.losers) return;
+
+    const finishedSession: GameSession = {
+      ...sessionToSave,
+      isFinished: true,
+    };
+
+    // 1. Simpan ke riwayat harian
+    await set(ref(db, `dailyStandings/${finishedSession.date}/sessions/${finishedSession.id}`), finishedSession);
+    
+    // 2. Update klasemen utama
+    await updateStandings(sessionToSave.winner, sessionToSave.losers);
+    
+    // 3. Hapus dari sesi aktif
+    await remove(ref(db, `activeSessions/${sessionToSave.id}`));
+  };
+
   const forceStopGame = async (sessionToStop: GameSession) => {
     const lastRound = sessionToStop.rounds[sessionToStop.rounds.length - 1];
     const accumulated = lastRound.accumulated;
@@ -142,85 +157,77 @@ function GamePlayContent() {
       isFinished: true,
     };
 
-    // 1. Simpan ke riwayat harian
-    await set(ref(db, `dailyStandings/${finishedSession.date}/sessions/${finishedSession.id}`), finishedSession);
-    
-    // 2. Update klasemen utama
-    await updateStandings(winner, losers);
-    
-    // 3. Hapus dari sesi aktif
-    await remove(ref(db, `activeSessions/${sessionToStop.id}`));
-    
-    // 4. Redirect ke dashboard
+    await saveFinishedSession(finishedSession);
     router.push('/game');
   };
 
-  // Logika Tombol Kembali yang Cerdas
   const handleBackToDashboard = async () => {
     if (!session) return;
     
-    // Jumlah ronde yang SELESAI (total ronde dikurangi 1 ronde yang sedang berlangsung)
+    // Jika game sudah selesai (modal terbuka), simpan dulu sebelum kembali
+    if (showGameEndedModal && session.winner && session.losers) {
+      await saveFinishedSession(session);
+      router.push('/game');
+      return;
+    }
+    
     const completedRoundsCount = session.rounds.length - 1;
 
     if (completedRoundsCount >= 1 && !session.isFinished) {
-      // Jika sudah ada minimal 1 ronde selesai, otomatis akhiri dan simpan
       if (confirm('Anda memiliki ronde yang telah selesai. Kembali ke dashboard akan mengakhiri permainan ini dan menyimpan skor saat ini sebagai riwayat. Lanjutkan?')) {
         await forceStopGame(session);
       }
     } else if (completedRoundsCount === 0) {
-      // Jika belum ada ronde yang selesai sama sekali, hapus sesi
       if (confirm('Belum ada ronde yang selesai. Sesi ini akan dihapus permanen. Yakin ingin membatalkan?')) {
         await remove(ref(db, `activeSessions/${session.id}`));
         router.push('/game');
       }
     } else {
-      // Fallback jika permainan sudah selesai secara normal
       router.push('/game');
     }
   };
 
-  const resetGame = async () => {
-    if (!session || !session.winner || !session.losers) return;
+ const resetGame = async () => {
+  if (!session || !session.winner || !session.losers) return;
 
-    // 1. Simpan sesi saat ini sebagai riwayat selesai
-    const finishedSession: GameSession = {
-      ...session,
-      isFinished: true,
-    };
-    await set(ref(db, `dailyStandings/${finishedSession.date}/sessions/${finishedSession.id}`), finishedSession);
+  // 1. Simpan sesi saat ini sebagai riwayat selesai
+  await saveFinishedSession(session);
 
-    // 2. Update klasemen utama
-    await updateStandings(session.winner, session.losers);
+  // 2. FIX: Generate ID BARU untuk sesi baru agar tidak override riwayat lama
+  const newSessionId = `session_${Date.now()}`;
 
-    // 3. Buat objek sesi BARU yang BERSIH (tanpa winner/losers untuk menghindari error undefined Firebase)
-    const initialAccumulated: Record<string, number> = {};
-    session.players.forEach((p) => (initialAccumulated[p] = 0));
+  // 3. Buat objek sesi BARU yang BERSIH
+  const initialAccumulated: Record<string, number> = {};
+  session.players.forEach((p) => (initialAccumulated[p] = 0));
 
-    const cleanSession: GameSession = {
-      id: session.id,
-      groupName: session.groupName,
-      date: new Date().toISOString().split('T')[0],
-      players: session.players,
-      rounds: [{
-        roundNumber: 1,
-        roundWinner: '',
-        scores: Object.fromEntries(session.players.map((p) => [p, 0])),
-        accumulated: initialAccumulated,
-      }],
-      timestamp: Date.now(),
-      isFinished: false,
-    };
-
-    // 4. Timpa data di Firebase
-    await set(ref(db, `activeSessions/${session.id}`), cleanSession);
-
-    // 5. Update state dan tutup modal
-    setSession(cleanSession);
-    setShowGameEndedModal(false);
-    
-    // Refresh klasemen harian
-    loadDailySessions();
+  const cleanSession: GameSession = {
+    id: newSessionId, // ✅ ID BARU
+    groupName: session.groupName,
+    date: new Date().toISOString().split('T')[0],
+    players: session.players,
+    rounds: [{
+      roundNumber: 1,
+      roundWinner: '',
+      scores: Object.fromEntries(session.players.map((p) => [p, 0])),
+      accumulated: initialAccumulated,
+    }],
+    timestamp: Date.now(),
+    isFinished: false,
   };
+
+  // 4. Simpan session baru ke activeSessions dengan ID baru
+  await set(ref(db, `activeSessions/${newSessionId}`), cleanSession);
+
+  // 5. Update state lokal dan tutup modal
+  setSession(cleanSession);
+  setShowGameEndedModal(false);
+  
+  // 6. FIX: Redirect ke URL baru agar konsisten dengan ID baru
+  router.replace(`/game/play/${newSessionId}`);
+  
+  // 7. Refresh klasemen harian
+  loadDailySessions();
+};
 
   const updateStandings = async (winner: string, losers: string[]) => {
     const winnerRef = ref(db, `standings/${winner}`);
@@ -276,7 +283,7 @@ function GamePlayContent() {
           gameEnded={showGameEndedModal}
         />
 
-        {/* --- KLASEMEN HARIAN --- */}
+        {/* KLASEMEN HARIAN */}
         <div className="mt-8 bg-white/10 backdrop-blur rounded-2xl p-4 md:p-6 border border-white/20">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             📊 Klasemen Harian ({new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })})
@@ -315,9 +322,6 @@ function GamePlayContent() {
                         >
                           📜 Lihat Riwayat
                         </button>
-                        {s.groupName === session.groupName && s.id === session.id && (
-                          <span className="ml-2 text-[10px] bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full">Sesi Ini</span>
-                        )}
                       </td>
                     </tr>
                   ))}
@@ -327,7 +331,7 @@ function GamePlayContent() {
           )}
         </div>
 
-        {/* --- MODAL PERMAINAN SELESAI (DISEDERHANAKAN) --- */}
+        {/* MODAL PERMAINAN SELESAI */}
         {showGameEndedModal && session.winner && (
           <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-gradient-to-br from-indigo-900 to-purple-900 rounded-3xl p-8 max-w-md w-full border-2 border-yellow-500/50 shadow-2xl text-center">
@@ -351,7 +355,7 @@ function GamePlayContent() {
                   🔄 Reset ke 0 & Lanjutkan
                 </button>
                 <button
-                  onClick={() => router.push('/game')}
+                  onClick={handleBackToDashboard}
                   className="w-full py-4 bg-white/10 hover:bg-white/20 rounded-xl font-bold text-lg transition"
                 >
                   ← Kembali ke Dashboard
@@ -361,7 +365,6 @@ function GamePlayContent() {
           </div>
         )}
 
-        {/* Modal Riwayat Ronde (Reusable) */}
         {showHistoryModal && selectedHistorySession && (
           <RoundHistoryModal
             session={selectedHistorySession}
