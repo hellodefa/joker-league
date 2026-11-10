@@ -23,9 +23,11 @@ export default function RoundHistoryModal({ session, onClose }: Props) {
             <span className="text-yellow-400">{session.winner}</span>
           </p>
           <p>
-            <strong>Pecundang:</strong>{' '}
-            <span className="text-red-400">{session.losers.join(', ')}</span>
-          </p>
+  <strong>Pecundang:</strong>{' '}
+  <span className="text-red-400 font-bold">
+    {session.losers?.join(', ') || '-'}
+  </span>
+</p>
         </div>
 
         <h3 className="text-lg font-bold mb-2">Detail Per Ronde:</h3>

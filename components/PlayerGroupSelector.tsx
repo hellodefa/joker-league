@@ -113,14 +113,15 @@ export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
           <>
             <div className="bg-black/30 rounded-lg p-4 mb-4">
               <h3 className="text-xl font-bold mb-3">👁 Preview Group {previewGroup.name}</h3>
-              <div className="space-y-2">
-                {previewGroup.players.map((player, i) => (
-                  <div key={i} className="bg-white/10 rounded-lg px-4 py-2 flex items-center gap-3">
-                    <span>👤</span>
-                    <span className="font-semibold">{player}</span>
-                  </div>
-                ))}
-              </div>
+              // Di dalam previewGroup block:
+<div className="space-y-2">
+  {previewGroup.players.map((player: string, i: number) => (
+    <div key={i} className="bg-white/10 rounded-lg px-4 py-2 flex items-center gap-3">
+      <span>👤</span>
+      <span className="font-semibold">{player}</span>
+    </div>
+  ))}
+</div>
             </div>
             <div className="flex gap-2">
               <button onClick={() => setPreviewGroup(null)} className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg">← Kembali</button>

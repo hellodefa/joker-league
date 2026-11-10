@@ -2,7 +2,6 @@ export interface PlayerStanding {
   name: string;
   wins: number;
   losses: number;
-  history?: { date: string; result: 'win' | 'loss' }[]; // Untuk riwayat di landing page
 }
 
 export interface RoundData {
@@ -22,4 +21,10 @@ export interface GameSession {
   losers?: string[];
   timestamp: number;
   isFinished: boolean;
+}
+
+export interface PlayerGroup {
+  id: string;
+  name: string;
+  players: string[];
 }
