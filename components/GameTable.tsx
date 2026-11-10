@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { RoundData } from '@/types';
 import ScoreWithDelta from '@/components/ScoreWithDelta';
 
@@ -18,15 +18,7 @@ function normalizeIntegerInput(value: string) {
   if (cleaned === '' || cleaned === '-') return cleaned;
   const isNegative = cleaned.startsWith('-');
   const digits = isNegative ? cleaned.slice(1) : cleaned;
-  const normalizedDigits = digits.replace(/^0+(?=\d)/, '');
-  return isNegative ? `-${normalizedDigits}` : normalizedDigits;
-}
-
-function parseInputNumber(value: string): number | null {
-  if (value.trim() === '' || value.trim() === '-') return null;
-  const num = Number(value);
-  if (!Number.isFinite(num)) return null;
-  return num;
+  return isNegative ? `-${digits.replace(/^0+(?=\d)/, '')}` : digits.replace(/^0+(?=\d)/, '');
 }
 
 export default function GameTable({
@@ -38,115 +30,116 @@ export default function GameTable({
 }: Props) {
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [roundWinner, setRoundWinner] = useState<string>('');
+  
+  // Ref untuk melacak apakah ronde benar-benar berganti
+  const prevRoundRef = useRef(currentRound.roundNumber);
 
   useEffect(() => {
-    const initialInputs: Record<string, string> = {};
-    players.forEach((player) => {
-      initialInputs[player] = '';
-    });
-    setInputs(initialInputs);
-    setRoundWinner('');
-  }, [currentRound, players]);
-
-  const handleScoreChange = (player: string, value: string) => {
-    setInputs((prev) => ({
-      ...prev,
-      [player]: normalizeIntegerInput(value),
-    }));
-  };
+    // HANYA reset input jika nomor ronde berubah (bukan setiap render)
+    if (prevRoundRef.current !== currentRound.roundNumber) {
+      const initialInputs: Record<string, string> = {};
+      players.forEach((player) => { initialInputs[player] = ''; });
+      setInputs(initialInputs);
+      setRoundWinner('');
+      prevRoundRef.current = currentRound.roundNumber;
+    }
+  }, [currentRound.roundNumber, players]);
 
   const handleSubmitRound = () => {
     const deltaScores: Record<string, number> = {};
-
     for (const player of players) {
-      const parsed = parseInputNumber(inputs[player] ?? '');
-      if (parsed === null) {
-        alert(`Nilai untuk pemain ${player} belum valid.`);
+      const val = inputs[player]?.trim();
+      if (!val && val !== '0') {
+        alert(`Nilai untuk pemain ${player} belum diisi.`);
         return;
       }
-      deltaScores[player] = parsed;
+      deltaScores[player] = Number(val);
     }
-
-    // Kirim "" jika tidak ada yang dipilih, bukan undefined
     onRoundSubmit(deltaScores, roundWinner || '');
   };
 
-  const getPreviewTotal = (player: string) => {
-    const previous = currentRound.accumulated[player] ?? 0;
-    const delta = parseInputNumber(inputs[player] ?? '');
-    if (delta === null) return null;
-    return previous + delta;
-  };
-
   return (
-    <div className="bg-white/10 backdrop-blur rounded-2xl p-6 border border-white/20">
+    <div className="bg-white/10 backdrop-blur rounded-2xl p-4 md:p-6 border border-white/20">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-2xl font-bold">📝 Ronde {currentRound.roundNumber}</h2>
-          <p className="text-sm text-gray-300 mt-1">
-            Masukkan <b>nilai yang didapat di ronde ini</b> (bisa plus atau minus).
-          </p>
+          <h2 className="text-xl md:text-2xl font-bold">📝 Ronde {currentRound.roundNumber}</h2>
+          <p className="text-xs md:text-sm text-gray-300 mt-1">Masukkan nilai yang didapat di ronde ini.</p>
         </div>
-        {!gameEnded && (
-          <div className="text-sm bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2">
-            👑 Pilih pemenang ronde (opsional).
-          </div>
-        )}
+     .      </div>
+
+      {/* Tampilan Mobile */}
+      <div className="md:hidden space-y-3 mb-4">
+        {players.map((player) => {
+          const isWinner = roundWinner === player;
+          return (
+            <div key={player} className={`p-3 rounded-xl border ${isWinner ? 'bg-yellow-500/20 border-yellow-500/50' : 'bg-black/30 border-white/10'}`}>
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-bold text-lg">{player}</span>
+                <label className="flex items-center gap-2 cursor-pointer bg-white/10 px-3 py-1 rounded-full">
+                  <input
+                    type="radio"
+                    name={`roundWinnerMobile-${currentRound.roundNumber}`}
+                    checked={isWinner}
+                    onChange={() => setRoundWinner(player)}
+                    disabled={gameEnded}
+                    className="accent-yellow-400"
+                  />
+                  <span className="text-sm">👑 Menang</span>
+                </label>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-400 w-16">Nilai:</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={inputs[player] ?? ''}
+                  onChange={(e) => setInputs(prev => ({ ...prev, [player]: normalizeIntegerInput(e.target.value) }))}
+                  disabled={gameEnded}
+                  className="flex-1 px-3 py-2 bg-black/50 border border-white/30 rounded-lg text-center text-white text-lg outline-none focus:border-yellow-400"
+                  placeholder="0"
+                />
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full mb-4 min-w-[760px]">
+      {/* Tampilan Desktop/Tablet */}
+      <div className="hidden md:block overflow-x-auto mb-4">
+        <table className="w-full min-w-[760px]">
           <thead>
             <tr className="border-b border-white/20">
               <th className="py-3 text-left">Pemain</th>
-              <th className="py-3 text-center">Total Sebelumnya</th>
               <th className="py-3 text-center">Nilai Ronde Ini</th>
-              <th className="py-3 text-center">Preview Total Baru</th>
               <th className="py-3 text-center">Pemenang Ronde</th>
             </tr>
           </thead>
           <tbody>
             {players.map((player) => {
-              const previousScore = currentRound.accumulated[player] ?? 0;
-              const previewTotal = getPreviewTotal(player);
-              const isRoundWinner = roundWinner === player;
-              
+              const isWinner = roundWinner === player;
               return (
-                <tr key={player} className={`border-b border-white/10 ${isRoundWinner ? 'bg-yellow-500/10' : ''}`}>
-                  <td className="py-3 font-semibold">
-                    {isRoundWinner && <span className="mr-2">👑</span>}
-                    {player}
-                  </td>
-                  <td className="py-3 text-center text-yellow-400 font-bold">{previousScore}</td>
+                <tr key={player} className={`border-b border-white/10 ${isWinner ? 'bg-yellow-500/10' : ''}`}>
+                  <td className="py-3 font-semibold">{isWinner && <span className="mr-2">👑</span>}{player}</td>
                   <td className="py-3 text-center">
                     <input
                       type="text"
                       inputMode="numeric"
-                      value={inputs[player] ?? ''} // Pastikan selalu string
-                      onChange={(e) => handleScoreChange(player, e.target.value)}
+                      value={inputs[player] ?? ''}
+                      onChange={(e) => setInputs(prev => ({ ...prev, [player]: normalizeIntegerInput(e.target.value) }))}
                       disabled={gameEnded}
-                      className="w-28 px-3 py-2 bg-black/30 border border-white/30 rounded text-center text-white outline-none focus:border-yellow-400"
+                      className="w-32 px-3 py-2 bg-black/30 border border-white/30 rounded text-center text-white outline-none focus:border-yellow-400"
                       placeholder="0"
                     />
                   </td>
                   <td className="py-3 text-center">
-                    {previewTotal !== null ? (
-                      <span className={`font-bold ${previewTotal > previousScore ? 'text-green-400' : previewTotal < previousScore ? 'text-red-400' : 'text-gray-300'}`}>
-                        {previewTotal}
-                      </span>
-                    ) : (
-                      <span className="text-gray-500">-</span>
-                    )}
-                  </td>
-                  <td className="py-3 text-center">
                     <label className="inline-flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="roundWinner"
-                        checked={roundWinner === player}
-                        onChange={() => setRoundWinner(player)}
-                        disabled={gameEnded}
-                        className="w-4 h-4"
+                      <input 
+                        type="radio" 
+                        name={`roundWinner-${currentRound.roundNumber}`} 
+                        checked={isWinner} 
+                        onChange={() => setRoundWinner(player)} 
+                        disabled={gameEnded} 
+                        className="w-4 h-4 accent-yellow-400" 
                       />
                       <span className="text-sm">Menang ronde</span>
                     </label>
@@ -159,44 +152,36 @@ export default function GameTable({
       </div>
 
       {!gameEnded && (
-        <button onClick={handleSubmitRound} className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 rounded-lg font-bold text-lg">
+        <button onClick={handleSubmitRound} className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 rounded-lg font-bold text-lg shadow-lg">
           ✅ Selesaikan Ronde {currentRound.roundNumber}
         </button>
       )}
 
+      {/* Riwayat Ronde (Sama seperti sebelumnya, disingkat untuk ringkas) */}
       {roundHistory.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-xl font-bold mb-3">📊 Riwayat Catatan Ronde</h3>
+        <div className="mt-6 md:mt-8">
+          <h3 className="text-lg md:text-xl font-bold mb-3">📊 Riwayat Catatan Ronde</h3>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-sm">
+            <table className="w-full min-w-[600px] text-sm">
               <thead>
                 <tr className="border-b border-white/20">
-                  <th className="py-3 text-left">Ronde</th>
-                  <th className="py-3 text-left">Pemenang Ronde</th>
+                  <th className="py-3 text-left w-16">#</th>
+                  <th className="py-3 text-left hidden md:table-cell">Pemenang</th>
                   {players.map((player) => <th key={player} className="py-3 text-center">{player}</th>)}
                 </tr>
-                </thead>
+              </thead>
               <tbody>
                 {roundHistory.map((round) => (
                   <tr key={round.roundNumber} className="border-b border-white/10 hover:bg-white/5">
-                    <td className="py-3 font-semibold">Ronde {round.roundNumber}</td>
-                    <td className="py-3">
-                      {round.roundWinner ? (
-                        <span className="text-yellow-400 font-bold">👑 {round.roundWinner}</span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
+                    <td className="py-3 font-bold text-gray-300">{round.roundNumber}</td>
+                    <td className="py-3 hidden md:table-cell">
+                      {round.roundWinner ? <span className="text-yellow-400 font-bold">👑 {round.roundWinner}</span> : <span className="text-gray-500">-</span>}
                     </td>
                     {players.map((player) => {
                       const isWinner = round.roundWinner === player;
-                      const total = round.accumulated[player] ?? 0;
-                      const delta = round.scores[player] ?? 0;
                       return (
-                        <td key={player} className={`py-3 text-center ${isWinner ? 'bg-yellow-500/15 border border-yellow-500/30' : ''}`}>
-                          <div className="flex flex-col items-center gap-1">
-                            {isWinner && <span className="text-xs text-yellow-400 font-bold">👑 Winner</span>}
-                            <ScoreWithDelta value={total} delta={delta} />
-                          </div>
+                        <td key={player} className={`py-3 text-center ${isWinner ? 'bg-yellow-500/10' : ''}`}>
+                          <ScoreWithDelta value={round.accumulated[player] ?? 0} delta={round.scores[player] ?? 0} />
                         </td>
                       );
                     })}

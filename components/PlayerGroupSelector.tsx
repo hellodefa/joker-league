@@ -7,7 +7,7 @@ import { PlayerGroup } from '@/types';
 
 interface Props {
   onClose: () => void;
-  onSelect: (players: string[]) => void;
+  onSelect: (players: string[], groupName: string) => void;
 }
 
 export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
@@ -15,12 +15,7 @@ export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [previewGroup, setPreviewGroup] = useState<PlayerGroup | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
-  const [newGroupPlayers, setNewGroupPlayers] = useState<string[]>([
-    '',
-    '',
-    '',
-    '',
-  ]);
+  const [newGroupPlayers, setNewGroupPlayers] = useState<string[]>(['', '', '', '']);
 
   useEffect(() => {
     loadGroups();
@@ -30,16 +25,11 @@ export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
     try {
       const groupsRef = ref(db, 'playerGroups');
       const snapshot = await get(groupsRef);
-
       if (snapshot.exists()) {
         const data = snapshot.val();
-        const list: PlayerGroup[] = Object.entries(data).map(
-          ([id, value]: [string, any]) => ({
-            id,
-            name: value.name,
-            players: value.players,
-          })
-        );
+        const list: PlayerGroup[] = Object.entries(data).map(([id, value]: [string, any]) => ({
+          id, name: value.name, players: value.players,
+        }));
         setGroups(list);
       } else {
         setGroups([]);
@@ -61,12 +51,7 @@ export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
     }
 
     try {
-      const groupsRef = ref(db, 'playerGroups');
-      await push(groupsRef, {
-        name: newGroupName,
-        players: validPlayers,
-      });
-
+      await push(ref(db, 'playerGroups'), { name: newGroupName, players: validPlayers });
       setNewGroupName('');
       setNewGroupPlayers(['', '', '', '']);
       setShowCreate(false);
@@ -80,12 +65,10 @@ export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
   const handleDeleteGroup = async (id: string) => {
     if (confirm('Hapus group ini?')) {
       try {
-        const groupRef = ref(db, `playerGroups/${id}`);
-        await remove(groupRef);
+        await remove(ref(db, `playerGroups/${id}`));
         loadGroups();
       } catch (err) {
         console.error('Error delete group:', err);
-        alert('Gagal menghapus group');
       }
     }
   };
@@ -98,99 +81,51 @@ export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
         {!showCreate && !previewGroup ? (
           <>
             {groups.length === 0 ? (
-              <p className="text-center text-gray-400 py-4">
-                Belum ada group tersimpan
-              </p>
+              <p className="text-center text-gray-400 py-4">Belum ada group tersimpan</p>
             ) : (
               <div className="space-y-2 mb-4">
                 {groups.map((g) => (
-                  <div
-                    key={g.id}
-                    className="bg-black/30 rounded-lg p-3 flex justify-between items-center"
-                  >
+                  <div key={g.id} className="bg-black/30 rounded-lg p-3 flex justify-between items-center">
                     <div className="flex-1">
                       <p className="font-bold">Group {g.name}</p>
-                      <p className="text-sm text-gray-400">
-                        {g.players.length} pemain
-                      </p>
+                      <p className="text-sm text-gray-400">{g.players.length} pemain</p>
                     </div>
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => setPreviewGroup(g)}
-                        className="px-3 py-1 bg-blue-500/30 hover:bg-blue-500/50 rounded text-sm"
-                      >
-                        👁 Lihat
-                      </button>
-                      <button
-                        onClick={() => {
-                          onSelect(g.players);
-                          onClose(); // <-- TAMBAHKAN INI
-                        }}
+                      <button onClick={() => setPreviewGroup(g)} className="px-3 py-1 bg-blue-500/30 hover:bg-blue-500/50 rounded text-sm">👁 Lihat</button>
+                      <button 
+                        onClick={() => { onSelect(g.players, g.name); onClose(); }} 
                         className="px-3 py-1 bg-green-500/30 hover:bg-green-500/50 rounded text-sm"
                       >
                         Pilih
                       </button>
-                      <button
-                        onClick={() => handleDeleteGroup(g.id)}
-                        className="px-3 py-1 bg-red-500/30 hover:bg-red-500/50 rounded text-sm"
-                      >
-                        🗑
-                      </button>
+                      <button onClick={() => handleDeleteGroup(g.id)} className="px-3 py-1 bg-red-500/30 hover:bg-red-500/50 rounded text-sm">🗑</button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-
             <div className="flex gap-2">
-              <button
-                onClick={onClose}
-                className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg"
-              >
-                Batal
-              </button>
-              <button
-                onClick={() => setShowCreate(true)}
-                className="flex-1 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 rounded-lg font-bold"
-              >
-                + Buat Group Baru
-              </button>
+              <button onClick={onClose} className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg">Batal</button>
+              <button onClick={() => setShowCreate(true)} className="flex-1 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 rounded-lg font-bold">+ Buat Group Baru</button>
             </div>
           </>
         ) : previewGroup ? (
           <>
             <div className="bg-black/30 rounded-lg p-4 mb-4">
-              <h3 className="text-xl font-bold mb-3">
-                👁 Preview Group {previewGroup.name}
-              </h3>
-              <p className="text-sm text-gray-400 mb-3">
-                Daftar pemain dalam group ini:
-              </p>
+              <h3 className="text-xl font-bold mb-3">👁 Preview Group {previewGroup.name}</h3>
               <div className="space-y-2">
                 {previewGroup.players.map((player, i) => (
-                  <div
-                    key={i}
-                    className="bg-white/10 rounded-lg px-4 py-2 flex items-center gap-3"
-                  >
-                    <span className="text-2xl">👤</span>
+                  <div key={i} className="bg-white/10 rounded-lg px-4 py-2 flex items-center gap-3">
+                    <span>👤</span>
                     <span className="font-semibold">{player}</span>
                   </div>
                 ))}
               </div>
             </div>
-
             <div className="flex gap-2">
-              <button
-                onClick={() => setPreviewGroup(null)}
-                className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg"
-              >
-                ← Kembali
-              </button>
-              <button
-                onClick={() => {
-                  onSelect(previewGroup.players);
-                  onClose(); 
-                }}
+              <button onClick={() => setPreviewGroup(null)} className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg">← Kembali</button>
+              <button 
+                onClick={() => { onSelect(previewGroup.players, previewGroup.name); onClose(); }} 
                 className="flex-1 py-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 rounded-lg font-bold"
               >
                 ✅ Pilih Group Ini
@@ -199,42 +134,15 @@ export default function PlayerGroupSelector({ onClose, onSelect }: Props) {
           </>
         ) : (
           <>
-            <input
-              type="text"
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              placeholder="Nama Group"
-              className="w-full px-3 py-2 bg-black/30 border border-white/30 rounded mb-3 text-white"
-            />
+            <input type="text" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Nama Group" className="w-full px-3 py-2 bg-black/30 border border-white/30 rounded mb-3 text-white" />
             <div className="space-y-2 mb-4">
               {newGroupPlayers.map((p, i) => (
-                <input
-                  key={i}
-                  type="text"
-                  value={p}
-                  onChange={(e) => {
-                    const arr = [...newGroupPlayers];
-                    arr[i] = e.target.value;
-                    setNewGroupPlayers(arr);
-                  }}
-                  placeholder={`Pemain ${i + 1}`}
-                  className="w-full px-3 py-2 bg-black/30 border border-white/30 rounded text-white"
-                />
+                <input key={i} type="text" value={p} onChange={(e) => { const arr = [...newGroupPlayers]; arr[i] = e.target.value; setNewGroupPlayers(arr); }} placeholder={`Pemain ${i + 1}`} className="w-full px-3 py-2 bg-black/30 border border-white/30 rounded text-white" />
               ))}
             </div>
             <div className="flex gap-2">
-              <button
-                onClick={() => setShowCreate(false)}
-                className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg"
-              >
-                Kembali
-              </button>
-              <button
-                onClick={handleCreateGroup}
-                className="flex-1 py-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 rounded-lg font-bold"
-              >
-                Simpan
-              </button>
+              <button onClick={() => setShowCreate(false)} className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg">Kembali</button>
+              <button onClick={handleCreateGroup} className="flex-1 py-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 rounded-lg font-bold">Simpan</button>
             </div>
           </>
         )}
