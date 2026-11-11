@@ -2,12 +2,13 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ref, onValue, set, remove, Unsubscribe } from 'firebase/database';
+import { ref, onValue, set, remove, get } from 'firebase/database';
 import { db } from '@/lib/firebase';
 import { GameSession } from '@/types';
 import PlayerInputModal from '@/components/PlayerInputModal';
 import PlayerGroupSelector from '@/components/PlayerGroupSelector';
 import RoundHistoryModal from '@/components/RoundHistoryModal';
+import ConfirmModal from '@/components/ConfirmModal';
 
 function GameDashboardContent() {
   const router = useRouter();
@@ -18,15 +19,32 @@ function GameDashboardContent() {
   const [showPlayerInput, setShowPlayerInput] = useState(false);
   const [showGroupSelector, setShowGroupSelector] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [selectedSessionHistory, setSelectedSessionHistory] =
-    useState<GameSession | null>(null);
+  const [selectedSessionHistory, setSelectedSessionHistory] = useState<GameSession | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // ============================================
-  // REAL-TIME LISTENERS dengan onValue
-  // ============================================
+  // State untuk modal konfirmasi
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    cancelText: string;
+    confirmColor: 'red' | 'green' | 'blue' | 'orange';
+    icon: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Ya',
+    cancelText: 'Batal',
+    confirmColor: 'red',
+    icon: '⚠️',
+    onConfirm: () => {},
+  });
+
+  // Real-time listeners
   useEffect(() => {
-    // Listener untuk activeSessions
     const activeRef = ref(db, 'activeSessions');
     const unsubActive = onValue(activeRef, (snapshot) => {
       let list: GameSession[] = [];
@@ -34,9 +52,7 @@ function GameDashboardContent() {
         list = Object.values(snapshot.val())
           .map((s: any) => ({
             ...s,
-            rounds: Array.isArray(s.rounds)
-              ? s.rounds
-              : Object.values(s.rounds || {}),
+            rounds: Array.isArray(s.rounds) ? s.rounds : Object.values(s.rounds || {}),
           }))
           .filter((s: GameSession) => !s.isFinished);
       }
@@ -44,7 +60,6 @@ function GameDashboardContent() {
       setLoading(false);
     });
 
-    // Listener untuk dailyStandings (finished sessions)
     const dailyRef = ref(db, 'dailyStandings');
     const unsubDaily = onValue(dailyRef, (snapshot) => {
       let list: GameSession[] = [];
@@ -52,9 +67,7 @@ function GameDashboardContent() {
         const data = snapshot.val();
         Object.values(data).forEach((day: any) => {
           if (day.sessions) {
-            const sessions = Array.isArray(day.sessions)
-              ? day.sessions
-              : Object.values(day.sessions);
+            const sessions = Array.isArray(day.sessions) ? day.sessions : Object.values(day.sessions);
             list = [...list, ...sessions];
           }
         });
@@ -63,14 +76,12 @@ function GameDashboardContent() {
       setFinishedSessions(list);
     });
 
-    // Cleanup listeners saat unmount
     return () => {
       unsubActive();
       unsubDaily();
     };
   }, []);
 
-  // Handle URL param untuk auto-redirect ke play page
   useEffect(() => {
     const sessionId = searchParams.get('sessionId');
     if (sessionId) {
@@ -103,43 +114,66 @@ function GameDashboardContent() {
     await set(ref(db, `activeSessions/${sessionId}`), newSession);
     setShowPlayerInput(false);
     setShowGroupSelector(false);
-
     router.push(`/game/play/${sessionId}`);
   };
 
   const forceStopGame = async (session: GameSession) => {
-    if (
-      !confirm(
-        'Yakin ingin menghentikan permainan ini?\n\nPermainan akan diakhiri dan riwayat akan disimpan.'
-      )
-    )
+    const hasCompletedRound = session.rounds.length > 1;
+
+    if (!hasCompletedRound) {
+      setConfirmModal({
+        isOpen: true,
+        title: 'Tidak Dapat Menghentikan',
+        message: 'Belum ada ronde yang selesai dimainkan.\n\nAnda harus menyelesaikan minimal 1 ronde sebelum dapat menghentikan permainan.',
+        confirmText: 'OK',
+        cancelText: 'Tutup',
+        confirmColor: 'blue',
+        icon: '⚠️',
+        onConfirm: () => setConfirmModal((prev) => ({ ...prev, isOpen: false })),
+      });
       return;
+    }
 
-    const lastRound = session.rounds[session.rounds.length - 1];
-    const accumulated = lastRound.accumulated;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Hentikan Permainan?',
+      message: `Yakin ingin menghentikan permainan "${session.groupName}"?\n\nPermainan akan diakhiri dan riwayat akan disimpan berdasarkan skor ronde terakhir yang telah selesai.`,
+      confirmText: '⏹ Hentikan',
+      cancelText: 'Batal',
+      confirmColor: 'orange',
+      icon: '⏹',
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
 
-    const sorted = Object.entries(accumulated).sort((a, b) => b[1] - a[1]);
-    const winner = sorted[0][0];
-    const minValue = Math.min(...Object.values(accumulated));
-    const losers = Object.entries(accumulated)
-      .filter(([, v]) => v === minValue)
-      .map(([name]) => name);
+        const lastCompletedRound = session.rounds[session.rounds.length - 2];
+        const accumulated = lastCompletedRound.accumulated;
 
-    const finishedSession: GameSession = {
-      ...session,
-      rounds: session.rounds,
-      winner,
-      losers,
-      isFinished: true,
-    };
+        const sorted = Object.entries(accumulated).sort((a, b) => b[1] - a[1]);
+        const winner = sorted[0][0];
+        const minValue = Math.min(...Object.values(accumulated));
+        const losers = Object.entries(accumulated)
+          .filter(([, v]) => v === minValue)
+          .map(([name]) => name);
 
-    await set(
-      ref(db, `dailyStandings/${finishedSession.date}/sessions/${finishedSession.id}`),
-      finishedSession
-    );
+        const completedRounds = session.rounds.slice(0, -1);
 
-    await updateStandings(winner, losers);
-    await remove(ref(db, `activeSessions/${session.id}`));
+        const finishedSession: GameSession = {
+          ...session,
+          rounds: completedRounds,
+          winner,
+          losers,
+          isFinished: true,
+        };
+
+        await set(
+          ref(db, `dailyStandings/${finishedSession.date}/sessions/${finishedSession.id}`),
+          finishedSession
+        );
+
+        await updateStandings(winner, losers);
+        await remove(ref(db, `activeSessions/${session.id}`));
+      },
+    });
   };
 
   const updateStandings = async (winner: string, losers: string[]) => {
@@ -167,15 +201,11 @@ function GameDashboardContent() {
     setShowHistoryModal(true);
   };
 
-  // Grouping berdasarkan grup
   const groupedHistory = finishedSessions.reduce((acc, session) => {
     if (!acc[session.groupName]) acc[session.groupName] = [];
     acc[session.groupName].push(session);
     return acc;
   }, {} as Record<string, GameSession[]>);
-
-  // Import get untuk updateStandings
-  const { get } = require('firebase/database');
 
   if (loading) {
     return (
@@ -198,7 +228,6 @@ function GameDashboardContent() {
           </button>
         </div>
 
-        {/* Tombol Mulai Permainan */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           <button
             onClick={() => setShowPlayerInput(true)}
@@ -220,7 +249,6 @@ function GameDashboardContent() {
           </button>
         </div>
 
-        {/* Permainan Sedang Berlangsung */}
         <h2 className="text-xl font-bold mb-4 border-b border-white/20 pb-2 text-yellow-400">
           ⏳ Permainan Sedang Berlangsung
         </h2>
@@ -234,20 +262,13 @@ function GameDashboardContent() {
               <div
                 key={session.id}
                 className="bg-white/10 backdrop-blur rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-yellow-500/30 transition-all hover:bg-white/15"
-                style={{
-                  animation: `fadeInRow 0.3s ease-out ${idx * 0.05}s both`,
-                }}
+                style={{ animation: `fadeInRow 0.3s ease-out ${idx * 0.05}s both` }}
               >
                 <div>
-                  <h3 className="font-bold text-lg text-yellow-400">
-                    Group: {session.groupName}
-                  </h3>
-                  <p className="text-sm text-gray-300">
-                    {session.players.join(', ')}
-                  </p>
+                  <h3 className="font-bold text-lg text-yellow-400">Group: {session.groupName}</h3>
+                  <p className="text-sm text-gray-300">{session.players.join(', ')}</p>
                   <p className="text-xs text-gray-400 mt-1">
-                    Ronde saat ini:{' '}
-                    {session.rounds[session.rounds.length - 1]?.roundNumber || 1}
+                    Ronde saat ini: {session.rounds[session.rounds.length - 1]?.roundNumber || 1}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -269,7 +290,6 @@ function GameDashboardContent() {
           </div>
         )}
 
-        {/* KLASEMEN SEMUA PERMAINAN - LIMIT 5 PER GRUP */}
         <h2 className="text-xl font-bold mb-4 border-b border-white/20 pb-2 text-blue-400">
           📊 Klasemen Semua Permainan
         </h2>
@@ -281,58 +301,40 @@ function GameDashboardContent() {
         ) : (
           <div className="space-y-6">
             {Object.entries(groupedHistory).map(([groupName, sessions], gIdx) => {
-              // Grouping berdasarkan tanggal
               const byDate = sessions.reduce((acc, session) => {
                 if (!acc[session.date]) acc[session.date] = [];
                 acc[session.date].push(session);
                 return acc;
               }, {} as Record<string, GameSession[]>);
 
-              const sortedDates = Object.keys(byDate).sort((a, b) =>
-                b.localeCompare(a)
-              );
-
+              const sortedDates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
               const totalHistory = sessions.length;
               const showViewAll = totalHistory > 5;
-
-              // FIX #2: Hanya tampilkan 5 data pertama
               const displayedSessions = sessions.slice(0, 5);
 
-              // Re-group displayed sessions by date
               const displayedByDate = displayedSessions.reduce((acc, session) => {
                 if (!acc[session.date]) acc[session.date] = [];
                 acc[session.date].push(session);
                 return acc;
               }, {} as Record<string, GameSession[]>);
 
-              const displayedDates = Object.keys(displayedByDate).sort((a, b) =>
-                b.localeCompare(a)
-              );
+              const displayedDates = Object.keys(displayedByDate).sort((a, b) => b.localeCompare(a));
 
               return (
                 <div
                   key={groupName}
                   className="bg-white/5 rounded-xl border border-white/10 overflow-hidden transition-all"
-                  style={{
-                    animation: `fadeInRow 0.3s ease-out ${gIdx * 0.08}s both`,
-                  }}
+                  style={{ animation: `fadeInRow 0.3s ease-out ${gIdx * 0.08}s both` }}
                 >
-                  {/* Header Grup */}
                   <div className="bg-white/10 p-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="text-xl">📁</span>
                       <span className="font-bold text-lg">{groupName}</span>
-                      <span className="text-sm font-normal text-gray-400">
-                        ({totalHistory} sesi)
-                      </span>
+                      <span className="text-sm font-normal text-gray-400">({totalHistory} sesi)</span>
                     </div>
                     {showViewAll && (
                       <button
-                        onClick={() =>
-                          router.push(
-                            `/game/history?group=${encodeURIComponent(groupName)}`
-                          )
-                        }
+                        onClick={() => router.push(`/game/history?group=${encodeURIComponent(groupName)}`)}
                         className="px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
                       >
                         Lihat Semua ({totalHistory - 5} lagi) →
@@ -340,13 +342,10 @@ function GameDashboardContent() {
                     )}
                   </div>
 
-                  {/* Konten per Tanggal - HANYA 5 DATA */}
                   <div className="divide-y divide-white/5">
                     {displayedDates.map((date) => {
                       const dateSessions = displayedByDate[date];
-                      const sortedSessions = [...dateSessions].sort(
-                        (a, b) => b.timestamp - a.timestamp
-                      );
+                      const sortedSessions = [...dateSessions].sort((a, b) => b.timestamp - a.timestamp);
 
                       return (
                         <div key={date} className="p-3">
@@ -360,9 +359,7 @@ function GameDashboardContent() {
                                 year: 'numeric',
                               })}
                             </span>
-                            <span className="text-xs">
-                              ({dateSessions.length} sesi)
-                            </span>
+                            <span className="text-xs">({dateSessions.length} sesi)</span>
                           </div>
 
                           <div className="overflow-x-auto">
@@ -378,24 +375,13 @@ function GameDashboardContent() {
                               </thead>
                               <tbody>
                                 {sortedSessions.map((session) => (
-                                  <tr
-                                    key={session.id}
-                                    className="border-b border-white/5 hover:bg-white/5 transition-colors"
-                                  >
+                                  <tr key={session.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                                     <td className="py-2 px-3 text-gray-300">
-                                      {new Date(
-                                        session.timestamp
-                                      ).toLocaleTimeString('id-ID')}
+                                      {new Date(session.timestamp).toLocaleTimeString('id-ID')}
                                     </td>
-                                    <td className="py-2 px-3 text-yellow-400 font-bold">
-                                      👑 {session.winner || '-'}
-                                    </td>
-                                    <td className="py-2 px-3 text-red-400">
-                                      💀 {session.losers?.join(', ') || '-'}
-                                    </td>
-                                    <td className="py-2 px-3 text-center font-mono">
-                                      {session.rounds.length}
-                                    </td>
+                                    <td className="py-2 px-3 text-yellow-400 font-bold">👑 {session.winner || '-'}</td>
+                                    <td className="py-2 px-3 text-red-400">💀 {session.losers?.join(', ') || '-'}</td>
+                                    <td className="py-2 px-3 text-center font-mono">{session.rounds.length}</td>
                                     <td className="py-2 px-3 text-center">
                                       <button
                                         onClick={() => viewSessionHistory(session)}
@@ -419,16 +405,10 @@ function GameDashboardContent() {
           </div>
         )}
 
-        {/* Modals */}
         {showPlayerInput && (
           <PlayerInputModal
             onClose={() => setShowPlayerInput(false)}
-            onStart={(players) =>
-              startNewGame(
-                players,
-                `Group ${activeSessions.length + finishedSessions.length + 1}`
-              )
-            }
+            onStart={(players) => startNewGame(players, `Group ${activeSessions.length + finishedSessions.length + 1}`)}
           />
         )}
         {showGroupSelector && (
@@ -438,11 +418,21 @@ function GameDashboardContent() {
           />
         )}
         {showHistoryModal && selectedSessionHistory && (
-          <RoundHistoryModal
-            session={selectedSessionHistory}
-            onClose={() => setShowHistoryModal(false)}
-          />
+          <RoundHistoryModal session={selectedSessionHistory} onClose={() => setShowHistoryModal(false)} />
         )}
+
+        {/* Confirm Modal */}
+        <ConfirmModal
+          isOpen={confirmModal.isOpen}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmText={confirmModal.confirmText}
+          cancelText={confirmModal.cancelText}
+          confirmColor={confirmModal.confirmColor}
+          icon={confirmModal.icon}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+        />
       </div>
     </main>
   );
@@ -450,13 +440,7 @@ function GameDashboardContent() {
 
 export default function GameDashboard() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-black text-white flex items-center justify-center">
-          Memuat dashboard...
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="min-h-screen bg-black text-white flex items-center justify-center">Memuat dashboard...</div>}>
       <GameDashboardContent />
     </Suspense>
   );

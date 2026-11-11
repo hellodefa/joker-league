@@ -7,6 +7,7 @@ import { db } from '@/lib/firebase';
 import { GameSession, RoundData } from '@/types';
 import GameTable from '@/components/GameTable';
 import RoundHistoryModal from '@/components/RoundHistoryModal';
+import ConfirmModal from '@/components/ConfirmModal';
 
 function GamePlayContent() {
   const router = useRouter();
@@ -19,6 +20,27 @@ function GamePlayContent() {
   const [showGameEndedModal, setShowGameEndedModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedHistorySession, setSelectedHistorySession] = useState<GameSession | null>(null);
+
+  // State untuk modal konfirmasi
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    cancelText: string;
+    confirmColor: 'red' | 'green' | 'blue' | 'orange';
+    icon: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Ya',
+    cancelText: 'Batal',
+    confirmColor: 'red',
+    icon: '⚠️',
+    onConfirm: () => {},
+  });
 
   useEffect(() => {
     if (sessionId) {
@@ -34,11 +56,23 @@ function GamePlayContent() {
         const data = snap.val();
         setSession({
           ...data,
-          rounds: Array.isArray(data.rounds) ? data.rounds : Object.values(data.rounds || {})
+          rounds: Array.isArray(data.rounds) ? data.rounds : Object.values(data.rounds || {}),
         });
       } else {
-        alert('Sesi permainan tidak ditemukan atau sudah selesai.');
-        router.push('/game');
+        // FIX: Gunakan modal, bukan alert
+        setConfirmModal({
+          isOpen: true,
+          title: 'Sesi Tidak Ditemukan',
+          message: 'Sesi permainan tidak ditemukan atau sudah selesai.\n\nAnda akan dikembalikan ke dashboard.',
+          confirmText: 'OK',
+          cancelText: 'Tutup',
+          confirmColor: 'blue',
+          icon: '❌',
+          onConfirm: () => {
+            setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+            router.push('/game');
+          },
+        });
       }
     } catch (err) {
       console.error('Error loading session:', err);
@@ -55,7 +89,7 @@ function GamePlayContent() {
         const data = snap.val();
         const sessions = Object.values(data).map((s: any) => ({
           ...s,
-          rounds: Array.isArray(s.rounds) ? s.rounds : Object.values(s.rounds || {})
+          rounds: Array.isArray(s.rounds) ? s.rounds : Object.values(s.rounds || {}),
         }));
         sessions.sort((a: GameSession, b: GameSession) => b.timestamp - a.timestamp);
         setDailySessions(sessions);
@@ -70,7 +104,7 @@ function GamePlayContent() {
 
     const lastRound = session.rounds[session.rounds.length - 1];
     const newAccumulated: Record<string, number> = {};
-    
+
     session.players.forEach((player) => {
       newAccumulated[player] = (lastRound.accumulated[player] ?? 0) + (deltaScores[player] ?? 0);
     });
@@ -100,8 +134,6 @@ function GamePlayContent() {
 
       setSession(updatedSession);
       setShowGameEndedModal(true);
-      
-      // FIX: Simpan ke activeSessions agar tidak hilang jika refresh
       await set(ref(db, `activeSessions/${session.id}`), updatedSession);
     } else {
       const nextRound: RoundData = {
@@ -110,18 +142,17 @@ function GamePlayContent() {
         scores: Object.fromEntries(session.players.map((p) => [p, 0])),
         accumulated: newAccumulated,
       };
-      
-      const updatedSession: GameSession = { 
-        ...session, 
-        rounds: [...updatedRounds, nextRound] 
+
+      const updatedSession: GameSession = {
+        ...session,
+        rounds: [...updatedRounds, nextRound],
       };
-      
+
       setSession(updatedSession);
       await set(ref(db, `activeSessions/${session.id}`), updatedSession);
     }
   };
 
-  // FIX: Fungsi untuk menyimpan sesi yang sudah selesai ke riwayat dan update standings
   const saveFinishedSession = async (sessionToSave: GameSession) => {
     if (!sessionToSave.winner || !sessionToSave.losers) return;
 
@@ -130,104 +161,108 @@ function GamePlayContent() {
       isFinished: true,
     };
 
-    // 1. Simpan ke riwayat harian
     await set(ref(db, `dailyStandings/${finishedSession.date}/sessions/${finishedSession.id}`), finishedSession);
-    
-    // 2. Update klasemen utama
     await updateStandings(sessionToSave.winner, sessionToSave.losers);
-    
-    // 3. Hapus dari sesi aktif
     await remove(ref(db, `activeSessions/${sessionToSave.id}`));
-  };
-
-  const forceStopGame = async (sessionToStop: GameSession) => {
-    const lastRound = sessionToStop.rounds[sessionToStop.rounds.length - 1];
-    const accumulated = lastRound.accumulated;
-    
-    const sorted = Object.entries(accumulated).sort((a, b) => b[1] - a[1]);
-    const winner = sorted[0][0];
-    const minValue = Math.min(...Object.values(accumulated));
-    const losers = Object.entries(accumulated).filter(([, v]) => v === minValue).map(([name]) => name);
-
-    const finishedSession: GameSession = {
-      ...sessionToStop,
-      rounds: sessionToStop.rounds,
-      winner,
-      losers,
-      isFinished: true,
-    };
-
-    await saveFinishedSession(finishedSession);
-    router.push('/game');
   };
 
   const handleBackToDashboard = async () => {
     if (!session) return;
-    
-    // Jika game sudah selesai (modal terbuka), simpan dulu sebelum kembali
+
     if (showGameEndedModal && session.winner && session.losers) {
       await saveFinishedSession(session);
       router.push('/game');
       return;
     }
-    
+
     const completedRoundsCount = session.rounds.length - 1;
 
     if (completedRoundsCount >= 1 && !session.isFinished) {
-      if (confirm('Anda memiliki ronde yang telah selesai. Kembali ke dashboard akan mengakhiri permainan ini dan menyimpan skor saat ini sebagai riwayat. Lanjutkan?')) {
-        await forceStopGame(session);
-      }
+      // FIX: Gunakan modal konfirmasi, bukan window.confirm
+      setConfirmModal({
+        isOpen: true,
+        title: 'Kembali ke Dashboard?',
+        message: 'Anda memiliki ronde yang telah selesai.\n\nKembali ke dashboard akan mengakhiri permainan ini dan menyimpan skor saat ini sebagai riwayat.',
+        confirmText: '⏹ Akhiri & Kembali',
+        cancelText: 'Batal',
+        confirmColor: 'orange',
+        icon: '⏹',
+        onConfirm: async () => {
+          setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+
+          const lastRound = session.rounds[session.rounds.length - 1];
+          const accumulated = lastRound.accumulated;
+
+          const sorted = Object.entries(accumulated).sort((a, b) => b[1] - a[1]);
+          const winner = sorted[0][0];
+          const minValue = Math.min(...Object.values(accumulated));
+          const losers = Object.entries(accumulated).filter(([, v]) => v === minValue).map(([name]) => name);
+
+          const finishedSession: GameSession = {
+            ...session,
+            rounds: session.rounds,
+            winner,
+            losers,
+            isFinished: true,
+          };
+
+          await saveFinishedSession(finishedSession);
+          router.push('/game');
+        },
+      });
     } else if (completedRoundsCount === 0) {
-      if (confirm('Belum ada ronde yang selesai. Sesi ini akan dihapus permanen. Yakin ingin membatalkan?')) {
-        await remove(ref(db, `activeSessions/${session.id}`));
-        router.push('/game');
-      }
+      // FIX: Gunakan modal konfirmasi, bukan window.confirm
+      setConfirmModal({
+        isOpen: true,
+        title: 'Batalkan Permainan?',
+        message: 'Belum ada ronde yang selesai.\n\nSesi ini akan dihapus permanen.',
+        confirmText: '🗑 Hapus',
+        cancelText: 'Batal',
+        confirmColor: 'red',
+        icon: '🗑',
+        onConfirm: async () => {
+          setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+          await remove(ref(db, `activeSessions/${session.id}`));
+          router.push('/game');
+        },
+      });
     } else {
       router.push('/game');
     }
   };
 
- const resetGame = async () => {
-  if (!session || !session.winner || !session.losers) return;
+  const resetGame = async () => {
+    if (!session || !session.winner || !session.losers) return;
 
-  // 1. Simpan sesi saat ini sebagai riwayat selesai
-  await saveFinishedSession(session);
+    await saveFinishedSession(session);
 
-  // 2. FIX: Generate ID BARU untuk sesi baru agar tidak override riwayat lama
-  const newSessionId = `session_${Date.now()}`;
+    const newSessionId = `session_${Date.now()}`;
+    const initialAccumulated: Record<string, number> = {};
+    session.players.forEach((p) => (initialAccumulated[p] = 0));
 
-  // 3. Buat objek sesi BARU yang BERSIH
-  const initialAccumulated: Record<string, number> = {};
-  session.players.forEach((p) => (initialAccumulated[p] = 0));
+    const cleanSession: GameSession = {
+      id: newSessionId,
+      groupName: session.groupName,
+      date: new Date().toISOString().split('T')[0],
+      players: session.players,
+      rounds: [
+        {
+          roundNumber: 1,
+          roundWinner: '',
+          scores: Object.fromEntries(session.players.map((p) => [p, 0])),
+          accumulated: initialAccumulated,
+        },
+      ],
+      timestamp: Date.now(),
+      isFinished: false,
+    };
 
-  const cleanSession: GameSession = {
-    id: newSessionId, // ✅ ID BARU
-    groupName: session.groupName,
-    date: new Date().toISOString().split('T')[0],
-    players: session.players,
-    rounds: [{
-      roundNumber: 1,
-      roundWinner: '',
-      scores: Object.fromEntries(session.players.map((p) => [p, 0])),
-      accumulated: initialAccumulated,
-    }],
-    timestamp: Date.now(),
-    isFinished: false,
+    await set(ref(db, `activeSessions/${newSessionId}`), cleanSession);
+    setSession(cleanSession);
+    setShowGameEndedModal(false);
+    router.replace(`/game/play/${newSessionId}`);
+    loadDailySessions();
   };
-
-  // 4. Simpan session baru ke activeSessions dengan ID baru
-  await set(ref(db, `activeSessions/${newSessionId}`), cleanSession);
-
-  // 5. Update state lokal dan tutup modal
-  setSession(cleanSession);
-  setShowGameEndedModal(false);
-  
-  // 6. FIX: Redirect ke URL baru agar konsisten dengan ID baru
-  router.replace(`/game/play/${newSessionId}`);
-  
-  // 7. Refresh klasemen harian
-  loadDailySessions();
-};
 
   const updateStandings = async (winner: string, losers: string[]) => {
     const winnerRef = ref(db, `standings/${winner}`);
@@ -267,9 +302,9 @@ function GamePlayContent() {
             <h1 className="text-2xl font-bold">🎮 {session.groupName}</h1>
             <p className="text-sm text-gray-400">{new Date(session.timestamp).toLocaleString('id-ID')}</p>
           </div>
-          <button 
-            onClick={handleBackToDashboard} 
-            className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm flex items-center gap-2"
+          <button
+            onClick={handleBackToDashboard}
+            className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm flex items-center gap-2 transition-colors"
           >
             ← Kembali ke Dashboard
           </button>
@@ -283,12 +318,11 @@ function GamePlayContent() {
           gameEnded={showGameEndedModal}
         />
 
-        {/* KLASEMEN HARIAN */}
         <div className="mt-8 bg-white/10 backdrop-blur rounded-2xl p-4 md:p-6 border border-white/20">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             📊 Klasemen Harian ({new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })})
           </h2>
-          
+
           {dailySessions.length === 0 ? (
             <p className="text-gray-400 text-center py-6 bg-black/20 rounded-xl">Belum ada permainan yang selesai hari ini.</p>
           ) : (
@@ -313,7 +347,7 @@ function GamePlayContent() {
                       <td className="py-3 px-4 text-red-400">{s.losers?.join(', ') || '-'}</td>
                       <td className="py-3 px-4 text-center font-mono">{s.rounds.length}</td>
                       <td className="py-3 px-4 text-center">
-                        <button 
+                        <button
                           onClick={() => {
                             setSelectedHistorySession(s);
                             setShowHistoryModal(true);
@@ -331,13 +365,12 @@ function GamePlayContent() {
           )}
         </div>
 
-        {/* MODAL PERMAINAN SELESAI */}
         {showGameEndedModal && session.winner && (
           <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-gradient-to-br from-indigo-900 to-purple-900 rounded-3xl p-8 max-w-md w-full border-2 border-yellow-500/50 shadow-2xl text-center">
               <div className="text-6xl mb-4">🏆</div>
               <h2 className="text-3xl font-bold text-yellow-400 mb-2">Permainan Selesai!</h2>
-              
+
               <div className="bg-black/30 rounded-xl p-4 mb-6 space-y-2">
                 <p className="text-lg">
                   Pemenang: <span className="font-bold text-white text-xl">{session.winner}</span>
@@ -366,11 +399,21 @@ function GamePlayContent() {
         )}
 
         {showHistoryModal && selectedHistorySession && (
-          <RoundHistoryModal
-            session={selectedHistorySession}
-            onClose={() => setShowHistoryModal(false)}
-          />
+          <RoundHistoryModal session={selectedHistorySession} onClose={() => setShowHistoryModal(false)} />
         )}
+
+        {/* Confirm Modal */}
+        <ConfirmModal
+          isOpen={confirmModal.isOpen}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmText={confirmModal.confirmText}
+          cancelText={confirmModal.cancelText}
+          confirmColor={confirmModal.confirmColor}
+          icon={confirmModal.icon}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+        />
       </div>
     </main>
   );
