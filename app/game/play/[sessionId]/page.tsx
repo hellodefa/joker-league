@@ -2,12 +2,26 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ref, get, set, remove } from 'firebase/database';
+import Image from 'next/image';
+import Link from 'next/link';
+import { ref, get, set, remove, onValue } from 'firebase/database';
 import { db } from '@/lib/firebase';
 import { GameSession, RoundData } from '@/types';
 import GameTable from '@/components/GameTable';
 import RoundHistoryModal from '@/components/RoundHistoryModal';
 import ConfirmModal from '@/components/ConfirmModal';
+import ProcessingModal from '@/components/ProcessingModal';
+
+// ==========================================
+// HELPER: Dapatkan Tanggal Lokal (Bukan UTC)
+// ==========================================
+const getLocalDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 function GamePlayContent() {
   const router = useRouter();
@@ -20,8 +34,8 @@ function GamePlayContent() {
   const [showGameEndedModal, setShowGameEndedModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedHistorySession, setSelectedHistorySession] = useState<GameSession | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // State untuk modal konfirmasi
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -42,10 +56,10 @@ function GamePlayContent() {
     onConfirm: () => {},
   });
 
+  // Load Session Data
   useEffect(() => {
     if (sessionId) {
       loadSession();
-      loadDailySessions();
     }
   }, [sessionId]);
 
@@ -59,7 +73,6 @@ function GamePlayContent() {
           rounds: Array.isArray(data.rounds) ? data.rounds : Object.values(data.rounds || {}),
         });
       } else {
-        // FIX: Gunakan modal, bukan alert
         setConfirmModal({
           isOpen: true,
           title: 'Sesi Tidak Ditemukan',
@@ -81,26 +94,42 @@ function GamePlayContent() {
     }
   };
 
-  const loadDailySessions = async () => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const snap = await get(ref(db, `dailyStandings/${today}/sessions`));
-      if (snap.exists()) {
-        const data = snap.val();
+  // ==========================================
+  // FIX 1: Listener bergantung pada session.groupName
+  // ==========================================
+  useEffect(() => {
+    // Jangan jalankan listener jika session belum ada
+    if (!session?.groupName) return;
+
+    const today = getLocalDateString(); // FIX 2: Gunakan tanggal lokal
+    const sessionsRef = ref(db, `dailyStandings/${today}/sessions`);
+    
+    const unsubscribe = onValue(sessionsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
         const sessions = Object.values(data).map((s: any) => ({
           ...s,
           rounds: Array.isArray(s.rounds) ? s.rounds : Object.values(s.rounds || {}),
         }));
-        sessions.sort((a: GameSession, b: GameSession) => b.timestamp - a.timestamp);
-        setDailySessions(sessions);
+        
+        // FILTER: Hanya tampilkan sesi dari grup yang sama
+        const filteredSessions = sessions.filter(
+          (s: GameSession) => s.groupName === session.groupName
+        );
+        
+        filteredSessions.sort((a: GameSession, b: GameSession) => b.timestamp - a.timestamp);
+        setDailySessions(filteredSessions);
+      } else {
+        setDailySessions([]);
       }
-    } catch (err) {
-      console.error('Error loading daily sessions:', err);
-    }
-  };
+    });
+
+    // Cleanup listener saat komponen unmount atau session berubah
+    return () => unsubscribe();
+  }, [session?.groupName]); // <-- Dependency yang benar
 
   const handleRoundInput = async (deltaScores: Record<string, number>, roundWinner: string) => {
-    if (!session) return;
+    if (!session || isProcessing) return;
 
     const lastRound = session.rounds[session.rounds.length - 1];
     const newAccumulated: Record<string, number> = {};
@@ -120,6 +149,8 @@ function GamePlayContent() {
     const updatedRounds = [...session.rounds.slice(0, -1), completedRound];
 
     if (playersAbove500.length > 0) {
+      setIsProcessing(true);
+
       const sorted = Object.entries(newAccumulated).sort((a, b) => b[1] - a[1]);
       const winner = sorted[0][0];
       const minValue = Math.min(...Object.values(newAccumulated));
@@ -130,11 +161,17 @@ function GamePlayContent() {
         rounds: updatedRounds,
         winner,
         losers,
+        isFinished: true,
       };
+
+      await set(ref(db, `dailyStandings/${getLocalDateString()}/sessions/${updatedSession.id}`), updatedSession);
+      await updateStandings(winner, losers);
+      await remove(ref(db, `activeSessions/${session.id}`));
+
+      setIsProcessing(false);
 
       setSession(updatedSession);
       setShowGameEndedModal(true);
-      await set(ref(db, `activeSessions/${session.id}`), updatedSession);
     } else {
       const nextRound: RoundData = {
         roundNumber: lastRound.roundNumber + 1,
@@ -153,24 +190,10 @@ function GamePlayContent() {
     }
   };
 
-  const saveFinishedSession = async (sessionToSave: GameSession) => {
-    if (!sessionToSave.winner || !sessionToSave.losers) return;
-
-    const finishedSession: GameSession = {
-      ...sessionToSave,
-      isFinished: true,
-    };
-
-    await set(ref(db, `dailyStandings/${finishedSession.date}/sessions/${finishedSession.id}`), finishedSession);
-    await updateStandings(sessionToSave.winner, sessionToSave.losers);
-    await remove(ref(db, `activeSessions/${sessionToSave.id}`));
-  };
-
   const handleBackToDashboard = async () => {
-    if (!session) return;
+    if (!session || isProcessing) return;
 
     if (showGameEndedModal && session.winner && session.losers) {
-      await saveFinishedSession(session);
       router.push('/game');
       return;
     }
@@ -178,7 +201,6 @@ function GamePlayContent() {
     const completedRoundsCount = session.rounds.length - 1;
 
     if (completedRoundsCount >= 1 && !session.isFinished) {
-      // FIX: Gunakan modal konfirmasi, bukan window.confirm
       setConfirmModal({
         isOpen: true,
         title: 'Kembali ke Dashboard?',
@@ -189,6 +211,7 @@ function GamePlayContent() {
         icon: '⏹',
         onConfirm: async () => {
           setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+          setIsProcessing(true);
 
           const lastRound = session.rounds[session.rounds.length - 1];
           const accumulated = lastRound.accumulated;
@@ -206,12 +229,15 @@ function GamePlayContent() {
             isFinished: true,
           };
 
-          await saveFinishedSession(finishedSession);
+          await set(ref(db, `dailyStandings/${getLocalDateString()}/sessions/${finishedSession.id}`), finishedSession);
+          await updateStandings(winner, losers);
+          await remove(ref(db, `activeSessions/${session.id}`));
+
+          setIsProcessing(false);
           router.push('/game');
         },
       });
     } else if (completedRoundsCount === 0) {
-      // FIX: Gunakan modal konfirmasi, bukan window.confirm
       setConfirmModal({
         isOpen: true,
         title: 'Batalkan Permainan?',
@@ -222,7 +248,9 @@ function GamePlayContent() {
         icon: '🗑',
         onConfirm: async () => {
           setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+          setIsProcessing(true);
           await remove(ref(db, `activeSessions/${session.id}`));
+          setIsProcessing(false);
           router.push('/game');
         },
       });
@@ -232,9 +260,9 @@ function GamePlayContent() {
   };
 
   const resetGame = async () => {
-    if (!session || !session.winner || !session.losers) return;
+    if (!session || !session.winner || !session.losers || isProcessing) return;
 
-    await saveFinishedSession(session);
+    setIsProcessing(true);
 
     const newSessionId = `session_${Date.now()}`;
     const initialAccumulated: Record<string, number> = {};
@@ -243,7 +271,7 @@ function GamePlayContent() {
     const cleanSession: GameSession = {
       id: newSessionId,
       groupName: session.groupName,
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(), // FIX 2: Gunakan tanggal lokal
       players: session.players,
       rounds: [
         {
@@ -258,10 +286,12 @@ function GamePlayContent() {
     };
 
     await set(ref(db, `activeSessions/${newSessionId}`), cleanSession);
+    
     setSession(cleanSession);
     setShowGameEndedModal(false);
     router.replace(`/game/play/${newSessionId}`);
-    loadDailySessions();
+    
+    setIsProcessing(false);
   };
 
   const updateStandings = async (winner: string, losers: string[]) => {
@@ -298,13 +328,27 @@ function GamePlayContent() {
     <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-black text-white p-4 md:p-6">
       <div className="max-w-5xl mx-auto">
         <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">🎮 {session.groupName}</h1>
-            <p className="text-sm text-gray-400">{new Date(session.timestamp).toLocaleString('id-ID')}</p>
+          <div className="flex items-center gap-3">
+            <Link href="/" className="flex-shrink-0 hover:scale-110 transition-transform">
+              <Image
+                src="/logo.svg"
+                alt="Joker League"
+                width={40}
+                height={40}
+                className="drop-shadow-lg"
+              />
+            </Link>
+            <div>
+              <h1 className="text-2xl font-bold"> Team {session.groupName}</h1>
+              <p className="text-sm text-gray-400">{new Date(session.timestamp).toLocaleString('id-ID')}</p>
+            </div>
           </div>
           <button
             onClick={handleBackToDashboard}
-            className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm flex items-center gap-2 transition-colors"
+            disabled={isProcessing}
+            className={`px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm flex items-center gap-2 transition-colors ${
+              isProcessing ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
             ← Kembali ke Dashboard
           </button>
@@ -315,23 +359,27 @@ function GamePlayContent() {
           currentRound={lastRound}
           roundHistory={session.rounds.slice(0, -1)}
           onRoundSubmit={handleRoundInput}
-          gameEnded={showGameEndedModal}
+          gameEnded={showGameEndedModal || isProcessing}
         />
 
         <div className="mt-8 bg-white/10 backdrop-blur rounded-2xl p-4 md:p-6 border border-white/20">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-            📊 Klasemen Harian ({new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })})
+            📊 Klasemen Harian - Team {session.groupName}
+            <span className="text-sm font-normal text-gray-400">
+              ({new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })})
+            </span>
           </h2>
 
           {dailySessions.length === 0 ? (
-            <p className="text-gray-400 text-center py-6 bg-black/20 rounded-xl">Belum ada permainan yang selesai hari ini.</p>
+            <p className="text-gray-400 text-center py-6 bg-black/20 rounded-xl">
+              Belum ada permainan yang selesai hari ini untuk Team {session.groupName}.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-black/30 text-gray-300">
                   <tr>
                     <th className="py-3 px-4 text-left">Waktu</th>
-                    <th className="py-3 px-4 text-left">Group</th>
                     <th className="py-3 px-4 text-left">Pemenang</th>
                     <th className="py-3 px-4 text-left">Pecundang</th>
                     <th className="py-3 px-4 text-center">Ronde</th>
@@ -342,9 +390,8 @@ function GamePlayContent() {
                   {dailySessions.map((s) => (
                     <tr key={s.id} className="border-b border-white/10 hover:bg-white/5 transition">
                       <td className="py-3 px-4 text-gray-300">{new Date(s.timestamp).toLocaleTimeString('id-ID')}</td>
-                      <td className="py-3 px-4 font-semibold">{s.groupName}</td>
-                      <td className="py-3 px-4 text-yellow-400 font-bold">{s.winner || '-'}</td>
-                      <td className="py-3 px-4 text-red-400">{s.losers?.join(', ') || '-'}</td>
+                      <td className="py-3 px-4 text-yellow-400 font-bold">👑 {s.winner || '-'}</td>
+                      <td className="py-3 px-4 text-red-400">💀 {s.losers?.join(', ') || '-'}</td>
                       <td className="py-3 px-4 text-center font-mono">{s.rounds.length}</td>
                       <td className="py-3 px-4 text-center">
                         <button
@@ -352,7 +399,10 @@ function GamePlayContent() {
                             setSelectedHistorySession(s);
                             setShowHistoryModal(true);
                           }}
-                          className="px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 rounded-lg text-xs font-semibold transition"
+                          disabled={isProcessing}
+                          className={`px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 rounded-lg text-xs font-semibold transition ${
+                            isProcessing ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
                         >
                           📜 Lihat Riwayat
                         </button>
@@ -383,13 +433,19 @@ function GamePlayContent() {
               <div className="flex flex-col gap-3">
                 <button
                   onClick={resetGame}
-                  className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 rounded-xl font-bold text-lg shadow-lg transition"
+                  disabled={isProcessing}
+                  className={`w-full py-4 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 rounded-xl font-bold text-lg shadow-lg transition ${
+                    isProcessing ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
                 >
                   🔄 Reset ke 0 & Lanjutkan
                 </button>
                 <button
                   onClick={handleBackToDashboard}
-                  className="w-full py-4 bg-white/10 hover:bg-white/20 rounded-xl font-bold text-lg transition"
+                  disabled={isProcessing}
+                  className={`w-full py-4 bg-white/10 hover:bg-white/20 rounded-xl font-bold text-lg transition ${
+                    isProcessing ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
                 >
                   ← Kembali ke Dashboard
                 </button>
@@ -402,7 +458,6 @@ function GamePlayContent() {
           <RoundHistoryModal session={selectedHistorySession} onClose={() => setShowHistoryModal(false)} />
         )}
 
-        {/* Confirm Modal */}
         <ConfirmModal
           isOpen={confirmModal.isOpen}
           title={confirmModal.title}
@@ -413,6 +468,12 @@ function GamePlayContent() {
           icon={confirmModal.icon}
           onConfirm={confirmModal.onConfirm}
           onCancel={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+        />
+
+        <ProcessingModal
+          isOpen={isProcessing}
+          title="Memproses Data"
+          message="Mohon tunggu, sedang menyimpan data permainan..."
         />
       </div>
     </main>

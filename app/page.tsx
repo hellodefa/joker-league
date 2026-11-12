@@ -1,63 +1,87 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ref, get } from 'firebase/database';
+import Image from 'next/image';
+import { ref, onValue } from 'firebase/database';
 import { db } from '@/lib/firebase';
-import { PlayerStanding } from '@/types';
+import { GameSession } from '@/types';
 import Link from 'next/link';
+import SkeletonList from '@/components/SkeletonList';
+import PlayerDetailModal from '@/components/PlayerDetailModal';
 
-// Komponen Modal Riwayat Sederhana
-function HistoryModal({ player, onClose }: { player: PlayerStanding | null, onClose: () => void }) {
-  if (!player) return null;
-  return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-indigo-900 rounded-2xl p-6 max-w-sm w-full border border-white/20" onClick={e => e.stopPropagation()}>
-        <h3 className="text-xl font-bold mb-4">Riwayat: {player.name}</h3>
-        <div className="space-y-2 mb-6">
-          <div className="flex justify-between p-2 bg-green-500/20 rounded text-green-300">
-            <span>Total Menang</span>
-            <span className="font-bold">{player.wins}x</span>
-          </div>
-          <div className="flex justify-between p-2 bg-red-500/20 rounded text-red-300">
-            <span>Total Kalah</span>
-            <span className="font-bold">{player.losses}x</span>
-          </div>
-        </div>
-        <button onClick={onClose} className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-lg">Tutup</button>
-      </div>
-    </div>
-  );
+interface PlayerStats {
+  name: string;
+  wins: number;
+  losses: number;
+  totalGames: number;
 }
 
 export default function LandingPage() {
-  const [standings, setStandings] = useState<PlayerStanding[]>([]);
+  const [allSessions, setAllSessions] = useState<GameSession[]>([]);
+  const [playerStats, setPlayerStats] = useState<PlayerStats[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPlayer, setSelectedPlayer] = useState<PlayerStanding | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
 
   useEffect(() => {
-    loadStandings();
-  }, []);
+    const dailyRef = ref(db, 'dailyStandings');
+    const unsubscribe = onValue(dailyRef, (snapshot) => {
+      let sessions: GameSession[] = [];
 
-  const loadStandings = async () => {
-    try {
-      const snapshot = await get(ref(db, 'standings'));
       if (snapshot.exists()) {
         const data = snapshot.val();
-        const list: PlayerStanding[] = Object.entries(data).map(([name, value]: [string, any]) => ({
-          name,
-          wins: value.wins || 0,
-          losses: value.losses || 0,
-        }));
-        // Sort descending untuk leaderboard yang masuk akal (paling banyak menang di atas)
-        list.sort((a, b) => b.wins - a.wins);
-        setStandings(list);
+        Object.values(data).forEach((day: any) => {
+          if (day.sessions) {
+            const daySessions = Array.isArray(day.sessions)
+              ? day.sessions
+              : Object.values(day.sessions);
+            sessions = [...sessions, ...daySessions];
+          }
+        });
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
+
+      sessions.sort((a, b) => b.timestamp - a.timestamp);
+      setAllSessions(sessions);
+
+      const statsMap = new Map<string, PlayerStats>();
+
+      sessions.forEach((session) => {
+        session.players.forEach((player) => {
+          if (!statsMap.has(player)) {
+            statsMap.set(player, {
+              name: player,
+              wins: 0,
+              losses: 0,
+              totalGames: 0,
+            });
+          }
+
+          const stats = statsMap.get(player)!;
+          stats.totalGames++;
+
+          if (session.winner === player) {
+            stats.wins++;
+          }
+
+          if (session.losers?.includes(player)) {
+            stats.losses++;
+          }
+        });
+      });
+
+      setPlayerStats(Array.from(statsMap.values()));
       setLoading(false);
-    }
-  };
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const winners = [...playerStats]
+    .filter((p) => p.wins > 0)
+    .sort((a, b) => b.wins - a.wins);
+
+  const losers = [...playerStats]
+    .filter((p) => p.losses > 0)
+    .sort((a, b) => b.losses - a.losses);
 
   const getRankStyle = (index: number) => {
     if (index === 0) return 'bg-gradient-to-r from-yellow-600/40 to-yellow-400/20 border-yellow-400/50 text-yellow-300 scale-105 shadow-lg shadow-yellow-500/20';
@@ -77,34 +101,57 @@ export default function LandingPage() {
     <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-black text-white p-4 md:p-6">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-8 md:mb-10">
+          {/* LOGO */}
+          <div className="flex justify-center mb-4">
+            <Image
+              src="/logo.svg"
+              alt="Joker League Logo"
+              width={120}
+              height={120}
+              className="drop-shadow-2xl"
+            />
+          </div>
           <h1 className="text-4xl md:text-5xl font-bold mb-2 bg-gradient-to-r from-yellow-400 to-red-500 bg-clip-text text-transparent">
-            🃏 Joker League
+            Liga Joker by HelloDefa
           </h1>
-          <p className="text-gray-300">Sistem Pencatat Liga Permainan Joker</p>
+          <p className="text-gray-300">Aplikasi Catatan Klasemen Joker na Anak-anaka</p>
         </div>
 
         {loading ? (
-          <div className="text-center py-20">Memuat data klasemen...</div>
+          <div className="grid md:grid-cols-2 gap-6 mb-10">
+            <div className="bg-white/10 backdrop-blur rounded-2xl p-4 md:p-6 border border-white/20">
+              <h2 className="text-xl md:text-2xl font-bold mb-4 text-center text-yellow-400">🏆 Klasemen All time Pemerintah</h2>
+              <SkeletonList count={5} type="card" />
+            </div>
+            <div className="bg-white/10 backdrop-blur rounded-2xl p-4 md:p-6 border border-white/20">
+              <h2 className="text-xl md:text-2xl font-bold mb-4 text-center text-red-400">💀 Klasemen All time Penyepong Prabowo</h2>
+              <SkeletonList count={5} type="card" />
+            </div>
+          </div>
         ) : (
           <div className="grid md:grid-cols-2 gap-6 mb-10">
-            {/* Tabel Pemenang */}
             <div className="bg-white/10 backdrop-blur rounded-2xl p-4 md:p-6 border border-white/20">
               <h2 className="text-xl md:text-2xl font-bold mb-4 text-center text-yellow-400">🏆 Tabel Pemenang</h2>
-              {standings.filter(p => p.wins > 0).length === 0 ? (
+              {winners.length === 0 ? (
                 <p className="text-center text-gray-400 py-8">Belum ada pemenang</p>
               ) : (
                 <div className="space-y-2">
-                  {standings.filter(p => p.wins > 0).map((p, i) => (
-                    <div key={p.name} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${getRankStyle(i)}`}>
+                  {winners.map((p, i) => (
+                    <div
+                      key={p.name}
+                      onClick={() => setSelectedPlayer(p.name)}
+                      className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer hover:scale-[1.02] ${getRankStyle(i)}`}
+                    >
                       <div className="flex items-center gap-3">
-                        <span className={`text-xl md:text-2xl font-bold w-8 text-center ${i < 3 ? 'scale-110' : ''}`}>{getRankIcon(i)}</span>
-                        <span className={`font-semibold ${i < 3 ? 'text-lg md:text-xl' : 'text-base'}`}>{p.name}</span>
+                        <span className={`text-xl md:text-2xl font-bold w-8 text-center ${i < 3 ? 'scale-110' : ''}`}>
+                          {getRankIcon(i)}
+                        </span>
+                        <span className={`font-semibold ${i < 3 ? 'text-lg md:text-xl' : 'text-base'}`}>
+                          {p.name}
+                        </span>
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="font-bold text-lg md:text-xl">{p.wins}</span>
-                        <button onClick={() => setSelectedPlayer(p)} className="p-1.5 bg-white/10 hover:bg-white/20 rounded-full text-xs" title="Lihat Riwayat">
-                          📜
-                        </button>
                       </div>
                     </div>
                   ))}
@@ -112,24 +159,26 @@ export default function LandingPage() {
               )}
             </div>
 
-            {/* Tabel Pecundang */}
             <div className="bg-white/10 backdrop-blur rounded-2xl p-4 md:p-6 border border-white/20">
               <h2 className="text-xl md:text-2xl font-bold mb-4 text-center text-red-400">💀 Tabel Pecundang</h2>
-              {standings.filter(p => p.losses > 0).length === 0 ? (
+              {losers.length === 0 ? (
                 <p className="text-center text-gray-400 py-8">Belum ada pecundang</p>
               ) : (
                 <div className="space-y-2">
-                  {[...standings].sort((a, b) => b.losses - a.losses).filter(p => p.losses > 0).map((p, i) => (
-                    <div key={p.name} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${i === 0 ? 'bg-red-900/40 border-red-500/50 text-red-200' : 'bg-white/5 border-white/10 text-gray-300'}`}>
+                  {losers.map((p, i) => (
+                    <div
+                      key={p.name}
+                      onClick={() => setSelectedPlayer(p.name)}
+                      className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer hover:scale-[1.02] ${
+                        i === 0 ? 'bg-red-900/40 border-red-500/50 text-red-200' : 'bg-white/5 border-white/10 text-gray-300'
+                      }`}
+                    >
                       <div className="flex items-center gap-3">
                         <span className="text-xl font-bold w-8 text-center">{i === 0 ? '💀' : `#${i + 1}`}</span>
                         <span className="font-semibold">{p.name}</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="font-bold text-lg">{p.losses}</span>
-                        <button onClick={() => setSelectedPlayer(p)} className="p-1.5 bg-white/10 hover:bg-white/20 rounded-full text-xs" title="Lihat Riwayat">
-                          📜
-                        </button>
                       </div>
                     </div>
                   ))}
@@ -148,7 +197,14 @@ export default function LandingPage() {
           </Link>
         </div>
 
-        {selectedPlayer && <HistoryModal player={selectedPlayer} onClose={() => setSelectedPlayer(null)} />}
+        {selectedPlayer && (
+          <PlayerDetailModal
+            isOpen={!!selectedPlayer}
+            playerName={selectedPlayer}
+            allSessions={allSessions}
+            onClose={() => setSelectedPlayer(null)}
+          />
+        )}
       </div>
     </main>
   );

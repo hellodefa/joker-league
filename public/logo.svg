@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <!-- 1. BORDER NOTEBOOK (BUKU CATATAN) -->
+  <!-- Sampul Belakang Buku -->
+  <rect x="34" y="24" width="176" height="196" rx="16" fill="#0F172A" />
+  <!-- Halaman Utama Buku -->
+  <rect x="30" y="20" width="174" height="194" rx="14" fill="#F8FAFC" stroke="#0F172A" stroke-width="5" />
+  <!-- Garis Tepi Halaman (Efek Kertas Bertumpuk) -->
+  <path d="M196 32 V202" stroke="#CBD5E1" stroke-width="3" stroke-linecap="round" />
+  <!-- Garis-Garis Buku Catatan (Tipis di Latar) -->
+  <line x1="56" y1="56" x2="184" y2="56" stroke="#E2E8F0" stroke-width="2" />
+  <line x1="56" y1="88" x2="184" y2="88" stroke="#E2E8F0" stroke-width="2" />
+  <line x1="56" y1="120" x2="184" y2="120" stroke="#E2E8F0" stroke-width="2" />
+  <line x1="56" y1="152" x2="184" y2="152" stroke="#E2E8F0" stroke-width="2" />
+  <line x1="56" y1="184" x2="184" y2="184" stroke="#E2E8F0" stroke-width="2" />
+  <!-- Ring / Spiral Notebook di Sisi Kiri -->
+  <g fill="#334155" stroke="#0F172A" stroke-width="2.5">
+    <!-- Lubang Kertas -->
+    <circle cx="44" cy="48" r="4.5" fill="#0F172A" />
+    <circle cx="44" cy="82" r="4.5" fill="#0F172A" />
+    <circle cx="44" cy="116" r="4.5" fill="#0F172A" />
+    <circle cx="44" cy="150" r="4.5" fill="#0F172A" />
+    <circle cx="44" cy="184" r="4.5" fill="#0F172A" />
+    <!-- Kawat Spiral -->
+    <rect x="18" y="44" width="28" height="8" rx="4" fill="#F59E0B" />
+    <rect x="18" y="78" width="28" height="8" rx="4" fill="#F59E0B" />
+    <rect x="18" y="112" width="28" height="8" rx="4" fill="#F59E0B" />
+    <rect x="18" y="146" width="28" height="8" rx="4" fill="#F59E0B" />
+    <rect x="18" y="180" width="28" height="8" rx="4" fill="#F59E0B" />
+  </g>
+  <!-- 2. UNSUR KARTU REMI (DI BELAKANG KARIKATUR) -->
+  <!-- Kartu Kiri -->
+  <g transform="rotate(-14 120 125)">
+    <rect x="64" y="54" width="64" height="92" rx="8" fill="#FFFFFF" stroke="#0F172A" stroke-width="3.5" />
+    <text x="71" y="71" font-family="Arial, sans-serif" font-weight="900" font-size="14" fill="#0F172A">J</text>
+    <path d="M75 76 C71 80, 71 84, 75 83 C79 84, 79 80, 75 76 Z" fill="#0F172A" />
+  </g>
+  <!-- Kartu Kanan -->
+  <g transform="rotate(14 120 125)">
+    <rect x="112" y="54" width="64" height="92" rx="8" fill="#FFFFFF" stroke="#0F172A" stroke-width="3.5" />
+    <text x="159" y="71" font-family="Arial, sans-serif" font-weight="900" font-size="14" fill="#E11D48">J</text>
+    <polygon points="163,75 167,80 163,85 159,80" fill="#E11D48" />
+  </g>
+  <!-- 3. KARIKATUR WAJAH JOKER -->
+  <g id="joker-caricature">
+    <!-- Kerah Badut / Jester Collar -->
+    <path d="M74 166 L94 152 L106 170 L120 154 L134 170 L146 152 L166 166 L154 186 L86 186 Z" fill="#7C3AED" stroke="#0F172A" stroke-width="3.5" stroke-linejoin="round" />
+    <circle cx="74" cy="166" r="4" fill="#F59E0B" stroke="#0F172A" stroke-width="2" />
+    <circle cx="166" cy="166" r="4" fill="#F59E0B" stroke="#0F172A" stroke-width="2" />
+    <!-- Rambut Hijau Karikatur -->
+    <path d="M84 106 C66 102, 62 124, 78 134 C68 140, 74 152, 88 148 Z" fill="#10B981" stroke="#0F172A" stroke-width="3.5" stroke-linejoin="round" />
+    <path d="M156 106 C174 102, 178 124, 162 134 C172 140, 166 152, 152 148 Z" fill="#10B981" stroke="#0F172A" stroke-width="3.5" stroke-linejoin="round" />
+    <!-- Bentuk Wajah Karikatur -->
+    <path d="M86 104 C86 84, 154 84, 154 104 C154 134, 138 164, 120 168 C102 164, 86 134, 86 104 Z" fill="#FFFFFF" stroke="#0F172A" stroke-width="4" stroke-linejoin="round" />
+    <!-- Topi Jester / Joker di Atas Kepala -->
+    <path d="M84 102 C74 72, 92 60, 106 84 C114 58, 126 58, 134 84 C148 60, 166 72, 156 102 C134 94, 106 94, 84 102 Z" fill="#E11D48" stroke="#0F172A" stroke-width="3.5" stroke-linejoin="round" />
+    <!-- Lonceng Emas pada Topi -->
+    <circle cx="78" cy="74" r="5.5" fill="#F59E0B" stroke="#0F172A" stroke-width="2.5" />
+    <circle cx="120" cy="60" r="6" fill="#F59E0B" stroke="#0F172A" stroke-width="2.5" />
+    <circle cx="162" cy="74" r="5.5" fill="#F59E0B" stroke="#0F172A" stroke-width="2.5" />
+    <!-- Alis Tajam & Ekspresif -->
+    <path d="M96 112 L112 118" stroke="#0F172A" stroke-width="3.5" stroke-linecap="round" />
+    <path d="M144 112 L128 118" stroke="#0F172A" stroke-width="3.5" stroke-linecap="round" />
+    <!-- Mata & Riasan Wajik Khas Joker -->
+    <polygon points="105,116 111,124 105,132 99,124" fill="#3B82F6" />
+    <polygon points="135,116 141,124 135,132 129,124" fill="#3B82F6" />
+    <circle cx="105" cy="124" r="3" fill="#0F172A" />
+    <circle cx="135" cy="124" r="3" fill="#0F172A" />
+    <!-- Hidung Merah Bulat Karikatur -->
+    <circle cx="120" cy="133" r="6.5" fill="#E11D48" stroke="#0F172A" stroke-width="2.5" />
+    <circle cx="118" cy="131" r="2" fill="#FFFFFF" />
+    <!-- Senyum Lebar Khas Joker -->
+    <path d="M96 140 C104 158, 136 158, 144 140 C132 146, 108 146, 96 140 Z" fill="#E11D48" stroke="#0F172A" stroke-width="3" stroke-linejoin="round" />
+    <!-- Garis Sudut Senyum -->
+    <path d="M93 137 C95 141, 97 142, 99 142" fill="none" stroke="#0F172A" stroke-width="2.5" stroke-linecap="round" />
+    <path d="M147 137 C145 141, 143 142, 141 142" fill="none" stroke="#0F172A" stroke-width="2.5" stroke-linecap="round" />
+  </g>
+</svg>
